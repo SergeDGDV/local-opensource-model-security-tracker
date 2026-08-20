@@ -14,37 +14,67 @@ It does three things:
    information of class W" by applying four independent §8 checks, each traceable
    to the section that requires it.
 
-An MCP server exposes all of it to an AI assistant. A launchd job runs the ingest
-daily.
+Three ways in, one implementation of the rules behind all of them: a **web
+dashboard** (buttons and tables, no terminal needed), a **CLI**, and an **MCP
+server** for an AI assistant. A launchd job runs the ingest daily.
 
 ---
 
-## Quick start
+## Quick start — the dashboard
+
+**Double-click `Launch Dashboard.command`.** It sets itself up on first run and
+opens the browser. Nothing else to install, no commands to type. Then press
+**Refresh data** and wait about a minute.
+
+That is the whole workflow for a non-technical user: buttons and tables.
+
+| Tab | Answers |
+|---|---|
+| **Action list** | What needs a human right now, by priority, with the section that requires it |
+| **Registry** | Every model family and runtime, its approval status, conditions and review date |
+| **Assess a model** | Pick a family, press Assess — the five §7 criteria with cited evidence |
+| **Can I use it?** | Fill in the form, get a permitted / not-permitted answer and every check behind it |
+| **Vulnerabilities** | Advisories on the runtimes, filterable by severity |
+| **Models seen** | What is out in the wild and whether it is governed |
+| **Intelligence** | Everything ingested, labelled by how much it can be trusted |
+| **Sources** | Whether each feed is fresh or stale |
+
+Tiles at the top are clickable and jump to the relevant filtered view. Tables
+sort on any column. There is a light/dark toggle.
+
+Approvals can be recorded from the Registry tab: open **Details → Record a
+decision**. Both an approving authority and a rationale are required, and the
+result is written to the git-tracked YAML.
+
+Run `LOMST_WEB_READONLY=1` in the environment to hand someone a look-only
+dashboard (refresh and decisions disabled).
+
+### If you prefer the terminal
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e .
 
-.venv/bin/lomst ingest          # fetch everything (~60-90s)
-.venv/bin/lomst digest          # what changed and what it means
-.venv/bin/lomst actions         # what needs a human, most urgent first
+.venv/bin/lomst serve       # same dashboard
+.venv/bin/lomst ingest      # fetch all sources
+.venv/bin/lomst digest      # what changed
+.venv/bin/lomst actions     # what needs a human
 ```
 
-Ask the two questions that matter:
+Ask the two questions directly:
 
 ```bash
-# Section 7: what does the evidence say about this family?
 lomst assess qwen
-
-# Section 8: may we actually do this?
 lomst check llama internal_productivity --runtime ollama --info internal
-lomst check mistral production_services --runtime vllm --solution "Billing summariser"
 ```
 
 `lomst check` exits `0` when permitted, `3` when blocked. `lomst actions` exits
-`2` when something is immediate, so a cron wrapper can alert on it.
+`2` when something is immediate, so a wrapper can alert on it.
 
----
+The dashboard binds to `127.0.0.1` only. It has no authentication and can write
+approval decisions, so exposing it on a network would contradict §10.3's stance
+on unauthenticated shared services — `--host` exists for a reviewed deployment
+behind a real access layer, and warns when you use it.
 
 ## The design decision that shapes everything
 
@@ -277,8 +307,11 @@ src/lomst/
   governance/review.py       §6.2/8.5/9.2/9.3/11.4/14 lifecycle triggers
   sources/                   11 connectors
   extract.py                 family/runtime attribution
+  web.py                     dashboard API (Starlette, no new deps)
+  webui/index.html           the whole UI - one file, no build step
   ingest.py digest.py cli.py mcp_server.py
-tests/                       81 tests
+Launch Dashboard.command     double-click entry point for non-developers
+tests/                       112 tests
 ```
 
 Seeded registry: `llama` (the Appendix B.1 worked example), `mistral`, and
@@ -286,7 +319,7 @@ runtimes `ollama` and `vllm`. `mistral` intentionally carries an **untested**
 fallback so `lomst actions` demonstrates the §8.5 gap it exists to catch.
 
 ```bash
-.venv/bin/python -m pytest -q       # 81 tests
+.venv/bin/python -m pytest -q       # 112 tests
 lomst probe                          # verify every source still parses
 ```
 

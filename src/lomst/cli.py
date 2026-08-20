@@ -9,6 +9,7 @@
     lomst decide <family> <outcome>   record a Section 6.3 decision
     lomst probe [source...]           verify sources still parse
     lomst health                      source freshness
+    lomst serve                       open the web dashboard in a browser
 """
 
 from __future__ import annotations
@@ -353,6 +354,31 @@ def cmd_probe(args: argparse.Namespace) -> int:
         store.close()
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    """Start the local web dashboard.
+
+    Loopback-only by default. The dashboard has no authentication and can write
+    approval decisions, so binding it to a network interface would contradict
+    Section 10.3's stance on unauthenticated shared services. `--host` exists for
+    deliberate, reviewed deployments behind a real access layer.
+    """
+    from .web import serve
+
+    print(f"Model Security Tracker: http://{args.host}:{args.port}/")
+    if args.host not in ("127.0.0.1", "localhost", "::1"):
+        print(
+            "  WARNING: binding beyond loopback exposes an unauthenticated surface "
+            "that can record approval decisions (Section 10.3).",
+            file=sys.stderr,
+        )
+    print("  Press Ctrl+C to stop.")
+    try:
+        serve(host=args.host, port=args.port, open_browser=not args.no_browser)
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
 def cmd_health(args: argparse.Namespace) -> int:
     cfg, store, registry = _ctx(args)
     try:
@@ -464,6 +490,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("health", help="source freshness")
     add_json(sp)
     sp.set_defaults(func=cmd_health)
+
+    sp = sub.add_parser("serve", help="open the web dashboard")
+    sp.add_argument("--port", type=int, default=8765)
+    sp.add_argument("--host", default="127.0.0.1", help="loopback by default; see Section 10.3")
+    sp.add_argument("--no-browser", action="store_true", help="do not open a browser window")
+    sp.set_defaults(func=cmd_serve, json=False)
 
     return p
 

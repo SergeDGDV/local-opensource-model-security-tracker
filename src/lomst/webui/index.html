@@ -1,0 +1,1346 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model Security Tracker</title>
+<style>
+/* ---------------------------------------------------------------- tokens ---
+   Status colours are fixed and never themed. On the light surface `warning`
+   and `serious` sit below 3:1 by design, so every status is rendered as
+   icon + label - colour never carries meaning on its own.
+*/
+:root {
+  color-scheme: light;
+  --plane:          #f9f9f7;
+  --surface:        #fcfcfb;
+  --surface-2:      #f0efec;
+  --ink:            #0b0b0b;
+  --ink-2:          #52514e;
+  --muted:          #898781;
+  --hairline:       #e1e0d9;
+  --border:         rgba(11,11,11,0.10);
+  --good:           #0ca30c;
+  --warning:        #fab219;
+  --serious:        #ec835a;
+  --critical:       #d03b3b;
+  --accent:         #2a78d6;
+  --shadow:         0 1px 2px rgba(11,11,11,.05), 0 1px 8px rgba(11,11,11,.04);
+  --radius:         10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --plane:      #0d0d0d;
+    --surface:    #1a1a19;
+    --surface-2:  #232322;
+    --ink:        #ffffff;
+    --ink-2:      #c3c2b7;
+    --muted:      #898781;
+    --hairline:   #2c2c2a;
+    --border:     rgba(255,255,255,0.10);
+    --accent:     #3987e5;
+    --shadow:     0 1px 2px rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --plane:      #0d0d0d;
+  --surface:    #1a1a19;
+  --surface-2:  #232322;
+  --ink:        #ffffff;
+  --ink-2:      #c3c2b7;
+  --muted:      #898781;
+  --hairline:   #2c2c2a;
+  --border:     rgba(255,255,255,0.10);
+  --accent:     #3987e5;
+  --shadow:     0 1px 2px rgba(0,0,0,.4);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--plane);
+  color: var(--ink);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); }
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+
+/* ---------------------------------------------------------------- layout --- */
+.wrap { max-width: 1500px; margin: 0 auto; padding: 20px 24px 64px; }
+
+header.top {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 16px 24px; background: var(--surface);
+  border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 30;
+}
+header.top .brand { display: flex; flex-direction: column; gap: 2px; margin-right: auto; }
+header.top h1 { font-size: 16px; }
+header.top .sub { color: var(--muted); font-size: 12px; }
+
+/* ---------------------------------------------------------------- buttons -- */
+button {
+  font: inherit; font-weight: 500; cursor: pointer;
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 14px; transition: background .12s, border-color .12s;
+}
+button:hover:not(:disabled) { background: var(--surface-2); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button.primary {
+  background: var(--accent); color: #fff; border-color: transparent;
+  padding: 10px 18px; font-weight: 600;
+}
+button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
+button.ghost { border-color: transparent; background: transparent; color: var(--ink-2); }
+button.ghost:hover:not(:disabled) { background: var(--surface-2); }
+button.sm { padding: 5px 10px; font-size: 12px; }
+
+/* ------------------------------------------------------------------ tiles -- */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px,1fr)); gap: 12px; margin: 20px 0; }
+.tile {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; gap: 6px; text-align: left;
+  align-items: stretch;
+}
+.tile .label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+/* Proportional figures on tile values; tabular-nums is for aligned columns. */
+.tile .value { font-size: 30px; font-weight: 600; line-height: 1.05; }
+.tile .note { font-size: 11px; color: var(--muted); }
+.tile.clickable { cursor: pointer; }
+.tile.clickable:hover { background: var(--surface-2); }
+.tile .value.crit { color: var(--critical); }
+.tile .value.ser  { color: var(--serious); }
+.tile .value.warn { color: var(--warning); }
+.tile .value.good { color: var(--good); }
+
+/* ------------------------------------------------------------------- tabs -- */
+nav.tabs { display: flex; gap: 2px; flex-wrap: wrap; border-bottom: 1px solid var(--border); margin-bottom: 18px; }
+nav.tabs button {
+  border: none; background: transparent; border-radius: 0; color: var(--ink-2);
+  padding: 10px 14px; border-bottom: 2px solid transparent; font-weight: 500;
+}
+nav.tabs button:hover { background: var(--surface-2); }
+nav.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+nav.tabs .count { color: var(--muted); font-size: 11px; margin-left: 5px; font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------------ cards -- */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 16px; overflow: hidden;
+}
+.card > .head {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 13px 16px; border-bottom: 1px solid var(--hairline);
+}
+.card > .head h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); }
+.card > .head .spacer { margin-left: auto; }
+.card > .body { padding: 16px; }
+.card > .body.flush { padding: 0; }
+
+/* ----------------------------------------------------------------- tables -- */
+.tablewrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+th {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+  font-weight: 600; white-space: nowrap; position: sticky; top: 0; background: var(--surface); z-index: 1;
+}
+th[data-sort] { cursor: pointer; user-select: none; }
+th[data-sort]:hover { color: var(--ink); }
+th .arrow { opacity: .45; font-size: 9px; }
+tbody tr:hover { background: var(--surface-2); }
+tbody tr:last-child td { border-bottom: none; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.mono { font-variant-numeric: tabular-nums; }
+td.wrap-text { min-width: 320px; white-space: normal; }
+.empty { padding: 40px 16px; text-align: center; color: var(--muted); }
+
+/* ----------------------------------------------------------------- badges -- */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--ink-2);
+}
+.badge .ic { font-size: 9px; line-height: 1; }
+.badge.critical { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 40%, transparent); background: color-mix(in srgb, var(--critical) 9%, transparent); }
+.badge.serious  { color: var(--serious);  border-color: color-mix(in srgb, var(--serious) 45%, transparent);  background: color-mix(in srgb, var(--serious) 11%, transparent); }
+.badge.warning  { color: var(--ink);      border-color: color-mix(in srgb, var(--warning) 55%, transparent);  background: color-mix(in srgb, var(--warning) 16%, transparent); }
+.badge.good     { color: var(--good);     border-color: color-mix(in srgb, var(--good) 40%, transparent);     background: color-mix(in srgb, var(--good) 9%, transparent); }
+.badge.neutral  { color: var(--ink-2); }
+.chip {
+  display: inline-block; font-size: 10.5px; font-weight: 600; padding: 1px 6px;
+  border-radius: 5px; background: var(--surface-2); color: var(--ink-2);
+  border: 1px solid var(--border); margin: 1px 3px 1px 0; white-space: nowrap;
+}
+.chip.sec { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+
+/* ------------------------------------------------------------------ forms -- */
+.form { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px,1fr)); gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+.field .hint { font-size: 11px; color: var(--muted); font-weight: 400; text-transform: none; letter-spacing: 0; }
+input[type=text], input[type=date], select, textarea {
+  font: inherit; padding: 8px 10px; border-radius: 8px; color: var(--ink);
+  background: var(--plane); border: 1px solid var(--border);
+}
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+textarea { resize: vertical; min-height: 66px; }
+.checks { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.checks label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink); text-transform: none; letter-spacing: 0; font-weight: 400; }
+.filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.filters input[type=text] { min-width: 220px; }
+/* One filter row above the content it scopes - not a card of its own. */
+.filterbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+.filterbar .lede { color: var(--muted); font-size: 12px; margin-right: 4px; }
+
+/* ---------------------------------------------------------------- verdict -- */
+.verdict { border-radius: var(--radius); padding: 16px; border: 1px solid var(--border); background: var(--surface-2); margin-bottom: 16px; }
+.verdict .v { font-size: 20px; font-weight: 700; display: flex; align-items: center; gap: 9px; }
+.verdict.blocked .v { color: var(--critical); }
+.verdict.allowed .v { color: var(--good); }
+.verdict.conditions .v { color: var(--ink); }
+.verdict p { margin: 8px 0 0; color: var(--ink-2); }
+
+/* ------------------------------------------------------------------ misto -- */
+.banner {
+  display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--surface); margin-bottom: 16px;
+}
+.banner.warn { border-color: color-mix(in srgb, var(--warning) 55%, transparent); background: color-mix(in srgb, var(--warning) 10%, transparent); }
+.banner.bad  { border-color: color-mix(in srgb, var(--critical) 45%, transparent); background: color-mix(in srgb, var(--critical) 8%, transparent); }
+.banner .ic { font-size: 15px; line-height: 1.3; }
+.banner .msg { flex: 1; }
+.banner .msg strong { display: block; margin-bottom: 2px; }
+.banner .msg span { color: var(--ink-2); font-size: 13px; }
+.spin { display: inline-block; width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: sp .7s linear infinite; }
+@keyframes sp { to { transform: rotate(360deg); } }
+.hide { display: none !important; }
+.loading { opacity: .45; transition: opacity .15s; }
+.detail { background: var(--plane); }
+.detail td { padding: 14px 18px; }
+.kv { display: grid; grid-template-columns: 180px 1fr; gap: 6px 16px; font-size: 12.5px; }
+.kv dt { color: var(--muted); font-weight: 600; }
+.kv dd { margin: 0; color: var(--ink-2); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+footer.foot { color: var(--muted); font-size: 11.5px; text-align: center; padding: 26px 16px 0; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <h1>Local &amp; Open-Source Model Security Tracker</h1>
+    <span class="sub">Governance of Local and Open-Source AI Models v1.1</span>
+  </div>
+  <span id="lastrun" class="sub"></span>
+  <button id="btn-refresh" class="primary">Refresh data</button>
+  <button id="btn-theme" class="ghost" title="Toggle light / dark">Dark</button>
+</header>
+
+<div class="wrap">
+
+  <div id="banners"></div>
+
+  <section class="tiles" id="tiles"></section>
+
+  <nav class="tabs" id="tabs" role="tablist"></nav>
+
+  <div id="panel"></div>
+
+  <footer class="foot">
+    Section references point to <em>Governance of Local and Open-Source AI Models v1.1</em>.
+    Assessments are recommendations with evidence, never approvals &mdash; Section 6.3 outcomes
+    are recorded by a named approving authority.
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+/* =============================================================== plumbing = */
+
+const $  = (s, r=document) => r.querySelector(s);
+const el = (t, cls, txt) => { const n = document.createElement(t); if (cls) n.className = cls; if (txt != null) n.textContent = txt; return n; };
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  let data = null;
+  try { data = await res.json(); } catch { /* non-JSON */ }
+  if (!res.ok) throw new Error((data && data.error) || `Request failed (${res.status})`);
+  return data;
+}
+const post = (path, body) => api(path, {
+  method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body || {})
+});
+
+const titleCase = s => (s || "").replace(/_/g, " ").replace(/^./, c => c.toUpperCase());
+const fmtInt    = n => (n == null ? "—" : Number(n).toLocaleString("en-GB"));
+function fmtDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return isNaN(d) ? String(iso).slice(0, 10)
+    : d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+function relTime(iso) {
+  if (!iso) return "never";
+  const secs = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (isNaN(secs)) return "unknown";
+  if (secs < 90) return "just now";
+  if (secs < 5400) return `${Math.round(secs/60)} min ago`;
+  if (secs < 172800) return `${Math.round(secs/3600)} h ago`;
+  return `${Math.round(secs/86400)} days ago`;
+}
+
+/* Status is always icon + label: colour never carries meaning alone. */
+const URGENCY = {
+  immediate:     { cls: "critical", ic: "▲", label: "Immediate" },
+  high:          { cls: "serious",  ic: "◆", label: "High" },
+  scheduled:     { cls: "warning",  ic: "■", label: "Scheduled" },
+  informational: { cls: "neutral",  ic: "●", label: "Info" },
+};
+const VERDICT = {
+  pass:    { cls: "good",     ic: "✓", label: "Pass" },
+  concern: { cls: "warning",  ic: "■", label: "Concern" },
+  fail:    { cls: "critical", ic: "✕", label: "Fail" },
+  unknown: { cls: "neutral",  ic: "?",      label: "Unknown" },
+};
+const SEVERITY = {
+  critical: { cls: "critical", ic: "▲", label: "Critical" },
+  high:     { cls: "serious",  ic: "◆", label: "High" },
+  moderate: { cls: "warning",  ic: "■", label: "Moderate" },
+  low:      { cls: "neutral",  ic: "●", label: "Low" },
+  unknown:  { cls: "neutral",  ic: "?",      label: "Unknown" },
+};
+const STATUS = {
+  approved:                 { cls: "good",     ic: "✓", label: "Approved" },
+  approved_with_conditions: { cls: "warning",  ic: "■", label: "Approved w/ conditions" },
+  restricted:               { cls: "warning",  ic: "■", label: "Restricted" },
+  deferred:                 { cls: "neutral",  ic: "●", label: "Deferred" },
+  pending_evaluation:       { cls: "neutral",  ic: "○", label: "Pending evaluation" },
+  rejected:                 { cls: "critical", ic: "✕", label: "Rejected" },
+  withdrawn:                { cls: "critical", ic: "✕", label: "Withdrawn" },
+};
+const LIFECYCLE = {
+  active:          { cls: "good",     ic: "✓", label: "Active" },
+  limited_support: { cls: "warning",  ic: "■", label: "Limited support" },
+  deprecated:      { cls: "serious",  ic: "◆", label: "Deprecated" },
+  retired:         { cls: "critical", ic: "✕", label: "Retired" },
+};
+const TIER = {
+  authoritative: { cls: "good",    ic: "✓", label: "Authoritative" },
+  community:     { cls: "neutral", ic: "●", label: "Community" },
+  aggregator:    { cls: "warning", ic: "△", label: "Leads only" },
+};
+
+function badge(map, key, fallbackLabel) {
+  const m = map[key] || { cls: "neutral", ic: "●", label: fallbackLabel || titleCase(key) || "—" };
+  const b = el("span", `badge ${m.cls}`);
+  const ic = el("span", "ic", m.ic); ic.setAttribute("aria-hidden", "true");
+  b.append(ic, document.createTextNode(m.label));
+  return b;
+}
+function chips(values, cls) {
+  const f = document.createDocumentFragment();
+  (values || []).forEach(v => { if (v) f.append(el("span", `chip ${cls||""}`, titleCase(String(v)))); });
+  if (!(values || []).length) f.append(document.createTextNode("—"));
+  return f;
+}
+
+/* Sortable table. `cols` = [{key,label,num,wrap,render,sortKey}] */
+function buildTable(cols, rows, opts) {
+  opts = opts || {};
+  const state = { key: opts.sortKey || null, dir: opts.sortDir || 1 };
+  const wrap  = el("div", "tablewrap");
+  const table = el("table");
+  const thead = el("thead"), htr = el("tr");
+  cols.forEach(c => {
+    const th = el("th", c.num ? "num" : null);
+    th.append(document.createTextNode(c.label));
+    if (c.key !== false) {
+      th.dataset.sort = c.key;
+      const arrow = el("span", "arrow", "");
+      th.append(document.createTextNode(" "), arrow);
+      th.onclick = () => {
+        if (state.key === c.key) state.dir *= -1; else { state.key = c.key; state.dir = 1; }
+        draw();
+      };
+    }
+    htr.append(th);
+  });
+  thead.append(htr);
+  const tbody = el("tbody");
+  table.append(thead, tbody);
+  wrap.append(table);
+
+  function draw() {
+    let data = rows.slice();
+    if (state.key) {
+      const col = cols.find(c => c.key === state.key) || {};
+      data.sort((a, b) => {
+        const get = r => (col.sortKey ? col.sortKey(r) : r[state.key]);
+        let x = get(a), y = get(b);
+        if (x == null) x = col.num ? -Infinity : "";
+        if (y == null) y = col.num ? -Infinity : "";
+        if (typeof x === "number" && typeof y === "number") return (x - y) * state.dir;
+        if (typeof x === "boolean") return ((x?1:0) - (y?1:0)) * state.dir;
+        return String(x).localeCompare(String(y), "en") * state.dir;
+      });
+    }
+    htr.querySelectorAll("th").forEach(th => {
+      const a = th.querySelector(".arrow");
+      if (a) a.textContent = th.dataset.sort === state.key ? (state.dir > 0 ? "▲" : "▼") : "";
+    });
+    tbody.textContent = "";
+    if (!data.length) {
+      const tr = el("tr"), td = el("td");
+      td.colSpan = cols.length;
+      td.append(el("div", "empty", opts.emptyText || "Nothing to show."));
+      tr.append(td); tbody.append(tr);
+      return;
+    }
+    data.forEach((row, i) => {
+      const tr = el("tr");
+      cols.forEach(c => {
+        const td = el("td", [c.num ? "num" : "", c.wrap ? "wrap-text" : "", c.mono ? "mono" : ""].filter(Boolean).join(" "));
+        const v = c.render ? c.render(row, i) : row[c.key];
+        if (v instanceof Node) td.append(v);
+        else td.textContent = (v == null || v === "") ? "—" : String(v);
+        tr.append(td);
+      });
+      if (opts.onRow) opts.onRow(tr, row, tbody);
+      tbody.append(tr);
+    });
+  }
+  draw();
+  return wrap;
+}
+
+function card(title, bodyNode, headExtras, flush) {
+  const c = el("div", "card");
+  const h = el("div", "head");
+  h.append(el("h2", null, title));
+  if (headExtras) { const s = el("div", "spacer"); h.append(s, headExtras); }
+  const b = el("div", "body" + (flush ? " flush" : ""));
+  if (bodyNode) b.append(bodyNode);
+  c.append(h, b);
+  return c;
+}
+function banner(kind, title, detail) {
+  const b = el("div", `banner ${kind}`);
+  const icons = { warn: "▲", bad: "✕", "": "●" };
+  const i = el("div", "ic", icons[kind] || "●"); i.setAttribute("aria-hidden", "true");
+  const m = el("div", "msg");
+  m.append(el("strong", null, title));
+  if (detail) m.append(el("span", null, detail));
+  b.append(i, m);
+  return b;
+}
+
+/* ================================================================== state = */
+
+const S = { overview: null, vocab: null, tab: "actions", cache: {} };
+
+const TABS = [
+  { id: "actions",      label: "Action list",   count: () => S.overview && S.overview.actions_total },
+  { id: "registry",     label: "Registry",      count: () => S.overview && (S.overview.families + S.overview.runtimes) },
+  { id: "assess",       label: "Assess a model" },
+  { id: "check",        label: "Can I use it?" },
+  { id: "advisories",   label: "Vulnerabilities" },
+  { id: "families",     label: "Models seen" },
+  { id: "intel",        label: "Intelligence" },
+  { id: "sources",      label: "Sources",       count: () => S.overview && S.overview.sources_total },
+];
+
+/* =============================================================== chrome === */
+
+function renderTheme() {
+  const dark = document.documentElement.dataset.theme === "dark";
+  $("#btn-theme").textContent = dark ? "Light" : "Dark";
+}
+$("#btn-theme").onclick = () => {
+  const dark = document.documentElement.dataset.theme === "dark";
+  document.documentElement.dataset.theme = dark ? "light" : "dark";
+  localStorage.setItem("lomst-theme", dark ? "light" : "dark");
+  renderTheme();
+};
+document.documentElement.dataset.theme = localStorage.getItem("lomst-theme") || "light";
+renderTheme();
+
+function renderTabs() {
+  const nav = $("#tabs");
+  nav.textContent = "";
+  TABS.forEach(t => {
+    const b = el("button", null);
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(S.tab === t.id));
+    b.append(document.createTextNode(t.label));
+    const n = t.count ? t.count() : null;
+    if (n != null) b.append(el("span", "count", String(n)));
+    b.onclick = () => { S.tab = t.id; renderTabs(); renderPanel(); };
+    nav.append(b);
+  });
+}
+
+function renderTiles() {
+  const o = S.overview, host = $("#tiles");
+  host.textContent = "";
+  if (!o) return;
+  const u = o.actions_by_urgency || {};
+  const tiles = [
+    { label: "Immediate",       value: u.immediate || 0, tone: (u.immediate ? "crit" : "good"), note: "Needs attention now",   tab: "actions", filter: "immediate" },
+    { label: "High",            value: u.high || 0,      tone: (u.high ? "ser" : "good"),       note: "Section 8.5 / 7.3 gaps", tab: "actions", filter: "high" },
+    { label: "Scheduled",       value: u.scheduled || 0, tone: "",                              note: "Reviews coming up",      tab: "actions", filter: "scheduled" },
+    { label: "Reviews overdue", value: o.reviews_overdue, tone: (o.reviews_overdue ? "crit" : "good"), note: "Section 9.2",     tab: "registry" },
+    { label: "Fallback gaps",   value: o.fallback_gaps,  tone: (o.fallback_gaps ? "ser" : "good"),    note: "Section 8.5 / C9", tab: "registry" },
+    { label: "Approved models", value: `${o.families_usable}/${o.families}`, tone: "", note: "Usable right now", tab: "registry" },
+    { label: "Sources healthy", value: `${o.sources_healthy}/${o.sources_total}`, tone: (o.sources_failing.length ? "ser" : "good"), note: "Feeds reporting", tab: "sources" },
+  ];
+  tiles.forEach(t => {
+    const b = el("button", "tile clickable");
+    b.append(el("span", "label", t.label));
+    b.append(el("span", `value ${t.tone}`, String(t.value)));
+    b.append(el("span", "note", t.note));
+    b.onclick = () => {
+      S.tab = t.tab;
+      if (t.filter) S.cache.actionFilter = t.filter;
+      renderTabs(); renderPanel();
+    };
+    host.append(b);
+  });
+}
+
+function renderBanners() {
+  const host = $("#banners"), o = S.overview;
+  host.textContent = "";
+  if (!o) return;
+  if (o.registry_error) {
+    host.append(banner("bad", "The registry could not be read",
+      o.registry_error + " — fix the YAML file, then press Refresh data."));
+  }
+  if (!o.has_data) {
+    host.append(banner("warn", "No data yet",
+      "Press “Refresh data” to fetch from all sources. It takes about a minute. Until then, " +
+      "assessments have no evidence to work from and will correctly report “unknown”."));
+  }
+  if (o.sources_failing && o.sources_failing.length) {
+    host.append(banner("warn", `${o.sources_failing.length} source(s) failing`,
+      o.sources_failing.join(", ") + " — evidence from these is stale. See the Sources tab."));
+  }
+  if (o.readonly) {
+    host.append(banner("", "Read-only mode",
+      "Refreshing data and recording decisions are disabled on this dashboard."));
+  }
+}
+
+/* ============================================================== refresh === */
+
+let pollTimer = null;
+$("#btn-refresh").onclick = async () => {
+  const btn = $("#btn-refresh");
+  btn.disabled = true;
+  try {
+    await post("/api/ingest", {});
+    btn.textContent = "Fetching…";
+    pollIngest();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = "Refresh data";
+    $("#banners").prepend(banner("bad", "Could not start the refresh", e.message));
+  }
+};
+
+async function pollIngest() {
+  clearTimeout(pollTimer);
+  let st;
+  try { st = await api("/api/ingest/status"); } catch { st = null; }
+  const btn = $("#btn-refresh");
+  if (st && st.running) {
+    btn.disabled = true;
+    btn.textContent = "Fetching…";
+    pollTimer = setTimeout(pollIngest, 1500);
+    return;
+  }
+  btn.disabled = false;
+  btn.textContent = "Refresh data";
+  if (st && st.finished_at) {
+    const bad = (st.sources || []).filter(s => !s.ok);
+    if (st.error) {
+      $("#banners").prepend(banner("bad", "Refresh failed", st.error));
+    } else if (bad.length) {
+      $("#banners").prepend(banner("warn", `Refresh finished with ${bad.length} source(s) failing`,
+        bad.map(s => `${s.id}: ${s.error}`).join(" | ")));
+    }
+  }
+  S.cache = {};
+  await loadOverview();
+  renderPanel();
+}
+
+async function loadOverview() {
+  try {
+    S.overview = await api("/api/overview");
+  } catch (e) {
+    $("#banners").textContent = "";
+    $("#banners").append(banner("bad", "Cannot reach the tracker", e.message));
+    return;
+  }
+  const lr = S.overview.last_run;
+  $("#lastrun").textContent = lr ? `Data refreshed ${relTime(lr.finished_at)}` : "No data yet";
+  renderBanners(); renderTiles(); renderTabs();
+}
+
+/* ================================================================ panels = */
+
+function setPanel(node) {
+  const p = $("#panel");
+  p.textContent = "";
+  p.append(node);
+}
+function spinnerPanel(msg) {
+  const d = el("div", "card");
+  const b = el("div", "body");
+  b.append(el("span", "spin"), document.createTextNode(" " + (msg || "Loading…")));
+  d.append(b);
+  return d;
+}
+
+async function renderPanel() {
+  const fn = {
+    actions: panelActions, registry: panelRegistry, assess: panelAssess,
+    check: panelCheck, advisories: panelAdvisories, families: panelFamilies,
+    intel: panelIntel, sources: panelSources,
+  }[S.tab];
+  setPanel(spinnerPanel());
+  try { await fn(); }
+  catch (e) { setPanel(banner("bad", "Could not load this view", e.message)); }
+}
+
+/* ------------------------------------------------------------ action list - */
+
+async function panelActions() {
+  const data = S.cache.actions || (S.cache.actions = await api("/api/actions"));
+  const host = el("div");
+
+  const filter = el("select");
+  [["all","All urgencies"],["immediate","Immediate only"],["high","High only"],
+   ["scheduled","Scheduled only"],["informational","Informational only"]]
+    .forEach(([v,l]) => { const o = el("option", null, l); o.value = v; filter.append(o); });
+  filter.value = S.cache.actionFilter || "all";
+
+  const search = el("input"); search.type = "text"; search.placeholder = "Search actions…";
+  search.value = S.cache.actionSearch || "";
+
+  const controls = el("div", "filterbar");
+  controls.append(el("span", "lede", "Show"), filter, search);
+
+  const body = el("div");
+  const cols = [
+    { key: "urgency", label: "Priority", sortKey: r => ({immediate:0,high:1,scheduled:2,informational:3}[r.urgency] ?? 9),
+      render: r => badge(URGENCY, r.urgency) },
+    { key: "section", label: "Section", render: r => el("span", "chip sec", r.section) },
+    { key: "subject", label: "Subject", render: r => el("strong", null, r.subject) },
+    { key: "kind", label: "Type", render: r => titleCase(r.kind) },
+    { key: "detail", label: "What to do", wrap: true },
+    { key: "responsible_function", label: "Owner",
+      render: r => r.owner ? `${r.owner} (${r.responsible_function})` : r.responsible_function },
+  ];
+
+  function draw() {
+    const q = (search.value || "").toLowerCase();
+    const f = filter.value;
+    const rows = (data.actions || []).filter(a =>
+      (f === "all" || a.urgency === f) &&
+      (!q || `${a.subject} ${a.detail} ${a.kind} ${a.section} ${a.owner}`.toLowerCase().includes(q))
+    );
+    body.textContent = "";
+    body.append(card(`Outstanding governance actions — ${rows.length}`,
+      buildTable(cols, rows, { sortKey: "urgency", emptyText: "Nothing outstanding. " +
+        "If you have not refreshed today, press Refresh data." }), null, true));
+  }
+  filter.onchange = () => { S.cache.actionFilter = filter.value; draw(); };
+  search.oninput  = () => { S.cache.actionSearch = search.value; draw(); };
+
+  host.append(controls);
+  host.append(body);
+  draw();
+  setPanel(host);
+}
+
+/* --------------------------------------------------------------- registry - */
+
+async function panelRegistry() {
+  const data = S.cache.registry || (S.cache.registry = await api("/api/registry"));
+  const host = el("div");
+
+  const cols = [
+    { key: "name", label: "Name", render: r => {
+        const d = el("div");
+        d.append(el("strong", null, r.name));
+        d.append(el("div", null, ""));
+        d.lastChild.append(el("span", "chip", r.kind === "runtime" ? "Runtime" : "Model family"));
+        if (r.developer) d.lastChild.append(el("span", "chip", r.developer));
+        return d;
+      } },
+    { key: "approval_status", label: "Approval", render: r => badge(STATUS, r.approval_status) },
+    { key: "lifecycle_status", label: "Lifecycle", render: r => badge(LIFECYCLE, r.lifecycle_status) },
+    { key: "approved_uses", label: "Approved for", sortKey: r => r.approved_uses.length,
+      render: r => chips(r.approved_uses) },
+    { key: "conditions", label: "Conditions", sortKey: r => r.conditions.length,
+      render: r => chips(r.conditions, "sec") },
+    { key: "license", label: "Licence" },
+    { key: "review_date", label: "Next review", sortKey: r => r.days_to_review ?? 99999,
+      render: r => {
+        const d = el("div");
+        d.append(document.createTextNode(fmtDate(r.review_date)));
+        if (r.review_overdue) { d.append(document.createElement("br")); d.append(badge(URGENCY, "immediate", "Overdue")); }
+        return d;
+      } },
+    { key: "dependent_solutions", label: "Dependencies", sortKey: r => r.dependent_solutions.length,
+      render: r => {
+        const gaps = r.dependent_solutions.filter(d => d.gap).length;
+        const d = el("div");
+        d.append(document.createTextNode(`${r.dependent_solutions.length}`));
+        if (gaps) { d.append(document.createTextNode(" ")); d.append(badge(URGENCY, "high", `${gaps} gap`)); }
+        return d;
+      } },
+    { key: false, label: "", render: r => {
+        const b = el("button", "sm", "Details");
+        b.onclick = ev => {
+          ev.stopPropagation();
+          const tr = b.closest("tr");
+          const nxt = tr.nextElementSibling;
+          if (nxt && nxt.classList.contains("detail")) { nxt.remove(); b.textContent = "Details"; return; }
+          b.textContent = "Hide";
+          tr.after(detailRow(r, cols.length));
+        };
+        return b;
+      } },
+  ];
+
+  host.append(card(`Model registry — the authoritative record (Section 9)`,
+    buildTable(cols, data.entries, { sortKey: "name",
+      emptyText: "No registry entries yet." }), null, true));
+  setPanel(host);
+}
+
+function detailRow(r, span) {
+  const tr = el("tr", "detail");
+  const td = el("td"); td.colSpan = span;
+  const dl = el("dl", "kv");
+  const add = (k, v) => {
+    if (v == null || v === "" || (Array.isArray(v) && !v.length)) return;
+    dl.append(el("dt", null, k));
+    const dd = el("dd");
+    if (v instanceof Node) dd.append(v); else dd.textContent = String(v);
+    dl.append(dd);
+  };
+  add("Key", r.key);
+  add("Approved versions", (r.approved_versions || []).join(", "));
+  add("Distribution / runtimes", (r.runtime_compatibility || []).join(", "));
+  add("Business owner", r.business_owner);
+  add("Governance owner", r.governance_owner);
+  add("Approved on", fmtDate(r.approval_date));
+  if ((r.restrictions || []).length) {
+    const ul = el("ul"); ul.style.margin = "0"; ul.style.paddingLeft = "18px";
+    r.restrictions.forEach(x => ul.append(el("li", null, x)));
+    add("Restrictions", ul);
+  }
+  add("Security notes", r.security_notes);
+  if ((r.dependent_solutions || []).length) {
+    const wrap = el("div");
+    r.dependent_solutions.forEach(d => {
+      const line = el("div");
+      line.style.marginBottom = "6px";
+      line.append(el("strong", null, d.name + " "));
+      line.append(el("span", "chip", titleCase(d.usage_category)));
+      line.append(el("span", "chip", `Fallback: ${titleCase(d.fallback_kind)}`));
+      line.append(d.gap ? badge(URGENCY, "high", d.gap) : badge(VERDICT, "pass", "Tested"));
+      if (d.fallback_description) line.append(el("div", null, d.fallback_description));
+      wrap.append(line);
+    });
+    add("Dependent solutions (8.5)", wrap);
+  }
+  if ((r.decision_history || []).length) {
+    const wrap = el("div");
+    r.decision_history.slice().reverse().forEach(h => {
+      const line = el("div");
+      line.style.marginBottom = "5px";
+      line.append(el("strong", null, fmtDate(h.date) + " — "));
+      line.append(badge(STATUS, h.outcome));
+      line.append(document.createTextNode(" by " + h.authority));
+      if (h.rationale) line.append(el("div", null, h.rationale));
+      wrap.append(line);
+    });
+    add("Decision history (9.1)", wrap);
+  }
+  td.append(dl);
+  if (!S.overview.readonly) td.append(decisionForm(r));
+  tr.append(td);
+  return tr;
+}
+
+function decisionForm(r) {
+  const wrap = el("div");
+  wrap.style.marginTop = "16px";
+  wrap.style.borderTop = "1px solid var(--hairline)";
+  wrap.style.paddingTop = "14px";
+  const toggle = el("button", "sm", "Record a decision…");
+  const form = el("div", "hide");
+  form.style.marginTop = "12px";
+  toggle.onclick = () => {
+    form.classList.toggle("hide");
+    toggle.textContent = form.classList.contains("hide") ? "Record a decision…" : "Cancel";
+  };
+
+  const grid = el("div", "form");
+  const mk = (label, node, hint) => {
+    const f = el("div", "field");
+    const l = el("label", null, label);
+    if (hint) l.append(el("span", "hint", " " + hint));
+    f.append(l, node); grid.append(f); return node;
+  };
+
+  const outcome = el("select");
+  (S.vocab.approval_outcomes || []).forEach(o => {
+    const opt = el("option", null, o.label); opt.value = o.value; outcome.append(opt);
+  });
+  outcome.value = r.approval_status;
+  mk("Outcome (6.3)", outcome);
+
+  const authority = el("input"); authority.type = "text";
+  authority.placeholder = "e.g. AI Governance";
+  authority.value = r.governance_owner || "";
+  mk("Approving authority", authority, "required");
+
+  const reviewDate = el("input"); reviewDate.type = "date";
+  mk("Next review date", reviewDate, "defaults to +12 months");
+
+  const versions = el("input"); versions.type = "text";
+  versions.value = (r.approved_versions || []).join(", ");
+  mk("Approved versions", versions, "comma separated");
+
+  const usesBox = el("div", "checks");
+  (S.vocab.usage_categories || []).forEach(u => {
+    const lab = el("label");
+    const cb = el("input"); cb.type = "checkbox"; cb.value = u.value;
+    cb.checked = (r.approved_uses || []).includes(u.value);
+    lab.append(cb, document.createTextNode(u.label));
+    usesBox.append(lab);
+  });
+  const condBox = el("div", "checks");
+  (S.vocab.condition_codes || []).forEach(c => {
+    const lab = el("label"); lab.title = c.requirement;
+    const cb = el("input"); cb.type = "checkbox"; cb.value = c.code;
+    cb.checked = (r.conditions || []).includes(c.code);
+    lab.append(cb, document.createTextNode(c.code));
+    condBox.append(lab);
+  });
+  const rationale = el("textarea");
+  rationale.placeholder = "Why this decision — recorded in the audit history.";
+
+  form.append(grid);
+  const w1 = el("div", "field"); w1.style.marginTop = "12px";
+  w1.append(el("label", null, "Approved uses (Appendix E.2)"), usesBox);
+  const w2 = el("div", "field"); w2.style.marginTop = "12px";
+  w2.append(el("label", null, "Conditions (Appendix E.4)"), condBox);
+  const w3 = el("div", "field"); w3.style.marginTop = "12px";
+  const rl = el("label", null, "Rationale"); rl.append(el("span", "hint", " required"));
+  w3.append(rl, rationale);
+  form.append(w1, w2, w3);
+
+  const save = el("button", "primary", "Save decision");
+  save.style.marginTop = "14px";
+  const msg = el("div"); msg.style.marginTop = "10px";
+  save.onclick = async () => {
+    msg.textContent = "";
+    save.disabled = true;
+    try {
+      const res = await post("/api/decide", {
+        family: r.key,
+        kind: r.kind,
+        outcome: outcome.value,
+        authority: authority.value,
+        rationale: rationale.value,
+        approved_uses: [...usesBox.querySelectorAll("input:checked")].map(i => i.value),
+        conditions: [...condBox.querySelectorAll("input:checked")].map(i => i.value),
+        versions: versions.value.split(",").map(s => s.trim()).filter(Boolean),
+        review_date: reviewDate.value || null,
+      });
+      msg.append(banner("", "Decision recorded",
+        `${r.name} is now ${titleCase(res.approval_status)}. Next review ${fmtDate(res.review_date)}. ` +
+        `Saved to ${res.file} — commit the registry folder to preserve the audit record.`));
+      S.cache = {};
+      await loadOverview();
+      setTimeout(() => renderPanel(), 1200);
+    } catch (e) {
+      msg.append(banner("bad", "Not recorded", e.message));
+    } finally { save.disabled = false; }
+  };
+  form.append(save, msg);
+  wrap.append(toggle, form);
+  return wrap;
+}
+
+/* ----------------------------------------------------------------- assess - */
+
+async function panelAssess() {
+  const fams = S.cache.families || (S.cache.families = await api("/api/families"));
+  const reg  = S.cache.registry || (S.cache.registry = await api("/api/registry"));
+  const host = el("div");
+
+  const names = new Set();
+  (reg.entries || []).filter(e => e.kind === "model_family").forEach(e => names.add(e.key));
+  (fams.families || []).forEach(f => names.add(f.family_key));
+
+  const select = el("select");
+  [...names].sort().forEach(k => {
+    const inReg = (reg.entries || []).some(e => e.kind === "model_family" && e.key === k);
+    const o = el("option", null, k + (inReg ? "" : "  (not in registry)"));
+    o.value = k; select.append(o);
+  });
+  if (S.cache.assessFamily) select.value = S.cache.assessFamily;
+
+  const go = el("button", "primary", "Assess");
+  const controls = el("div", "filterbar");
+  controls.append(el("span", "lede", "Model family"), select, go);
+  const out = el("div");
+
+  go.onclick = async () => {
+    S.cache.assessFamily = select.value;
+    out.textContent = "";
+    out.append(spinnerPanel("Assessing…"));
+    try {
+      const a = await api("/api/assess/" + encodeURIComponent(select.value));
+      out.textContent = "";
+      out.append(renderAssessment(a));
+    } catch (e) {
+      out.textContent = "";
+      out.append(banner("bad", "Assessment failed", e.message));
+    }
+  };
+
+  host.append(controls);
+  host.append(out);
+  setPanel(host);
+  if (S.cache.assessFamily) go.onclick();
+}
+
+function renderAssessment(a) {
+  const host = el("div");
+
+  const head = el("div", "verdict " + (a.overall_risk === "high" ? "blocked" : "conditions"));
+  const v = el("div", "v");
+  v.append(el("span", null, `${a.family_name} — risk: ${titleCase(a.overall_risk)}`));
+  head.append(v);
+  head.append(el("p", null,
+    `Recommended outcome: ${titleCase(a.recommended_outcome)}. ` +
+    `Highest usage category the evidence could support: ` +
+    `${a.eligible_uses.length ? titleCase(a.eligible_uses[a.eligible_uses.length-1]) : "none"}.`));
+  head.append(el("p", null, a.disclaimer));
+  host.append(head);
+
+  const cols = [
+    { key: "section", label: "Section", render: r => el("span", "chip sec", r.section) },
+    { key: "criterion", label: "Criterion", render: r => el("strong", null, titleCase(r.criterion)) },
+    { key: "verdict", label: "Result", sortKey: r => ({fail:0,unknown:1,concern:2,pass:3}[r.verdict] ?? 9),
+      render: r => badge(VERDICT, r.verdict) },
+    { key: "summary", label: "Finding", wrap: true },
+    { key: "conditions", label: "Conditions", sortKey: r => r.conditions.length,
+      render: r => chips(r.conditions, "sec") },
+    { key: false, label: "Evidence", wrap: true, render: r => {
+        if (!r.evidence.length) return document.createTextNode("—");
+        const d = el("div");
+        r.evidence.forEach(e => {
+          const line = el("div");
+          line.style.marginBottom = "4px";
+          line.append(badge(TIER, e.tier));
+          line.append(document.createTextNode(" " + e.statement));
+          if (e.url) { line.append(document.createTextNode(" ")); const a2 = el("a", null, "source"); a2.href = e.url; a2.target = "_blank"; a2.rel = "noopener"; line.append(a2); }
+          d.append(line);
+        });
+        return d;
+      } },
+  ];
+  host.append(card("Section 7 evaluation criteria",
+    buildTable(cols, a.findings, { sortKey: "verdict" }), null, true));
+
+  if (a.recommended_conditions.length) {
+    const cc = [
+      { key: "code", label: "Code", render: r => el("span", "chip sec", r.code) },
+      { key: "requirement", label: "Requirement", wrap: true },
+    ];
+    host.append(card("Recommended conditions", buildTable(cc, a.recommended_conditions), null, true));
+  }
+  if (a.license) {
+    const dl = el("dl", "kv");
+    const add = (k, val) => { dl.append(el("dt", null, k)); dl.append(el("dd", null, val == null ? "Not stated" : String(val))); };
+    add("Licence as published", a.license.raw || "not stated");
+    add("Classified as", titleCase(a.license.class));
+    add("Commercial use", a.license.commercial_use === null ? "Unclear" : (a.license.commercial_use ? "Permitted" : "Not permitted"));
+    add("Redistribution", a.license.redistribution === null ? "Unclear" : (a.license.redistribution ? "Permitted" : "Not permitted"));
+    add("Fine-tuning", a.license.fine_tuning === null ? "Unclear" : (a.license.fine_tuning ? "Permitted" : "Not permitted"));
+    add("Acceptable use policy", a.license.acceptable_use_policy ? "Yes — Legal review applies" : "No");
+    add("Assessment", a.license.rationale);
+    host.append(card("Licensing (Section 7.3)", dl));
+  }
+  if (a.evidence_gaps.length) {
+    const ul = el("ul");
+    a.evidence_gaps.forEach(g => ul.append(el("li", null, g)));
+    host.append(card("Evidence gaps — what a human still has to check", ul));
+  }
+  if (a.leads_not_evidence.length) {
+    const cols2 = [
+      { key: "source", label: "Source" },
+      { key: "statement", label: "Mentioned", wrap: true },
+      { key: false, label: "", render: r => { if (!r.url) return document.createTextNode(""); const a2 = el("a", null, "open"); a2.href = r.url; a2.target="_blank"; a2.rel="noopener"; return a2; } },
+    ];
+    host.append(card(`Leads from aggregator sources — NOT usable as evidence (${a.leads_not_evidence.length})`,
+      buildTable(cols2, a.leads_not_evidence), null, true));
+  }
+  return host;
+}
+
+/* ------------------------------------------------------------------ check - */
+
+async function panelCheck() {
+  const reg = S.cache.registry || (S.cache.registry = await api("/api/registry"));
+  const host = el("div");
+  const grid = el("div", "form");
+  const mk = (label, node, hint) => {
+    const f = el("div", "field");
+    const l = el("label", null, label);
+    if (hint) l.append(el("span", "hint", " " + hint));
+    f.append(l, node); grid.append(f); return node;
+  };
+
+  const fam = el("select");
+  (reg.entries || []).filter(e => e.kind === "model_family")
+    .forEach(e => { const o = el("option", null, e.name); o.value = e.key; fam.append(o); });
+  if (!fam.options.length) { const o = el("option", null, "(no families in the registry)"); o.value = ""; fam.append(o); }
+  mk("Model family", fam);
+
+  const cat = el("select");
+  (S.vocab.usage_categories || []).forEach(u => { const o = el("option", null, u.label); o.value = u.value; cat.append(o); });
+  cat.value = "internal_productivity";
+  mk("What do you want to use it for?", cat, "Appendix E.2");
+
+  const rt = el("select");
+  const none = el("option", null, "(not specified)"); none.value = ""; rt.append(none);
+  (reg.entries || []).filter(e => e.kind === "runtime")
+    .forEach(e => { const o = el("option", null, e.name); o.value = e.key; rt.append(o); });
+  mk("Which runtime will run it?", rt, "governed separately — Section 10");
+
+  const sol = el("input"); sol.type = "text"; sol.placeholder = "e.g. Billing summariser";
+  mk("Solution name", sol, "for the Section 8.5 continuity check");
+
+  const ver = el("input"); ver.type = "text"; ver.placeholder = "e.g. 4.0";
+  mk("Specific version", ver, "optional — Section 6.2");
+
+  const infoBox = el("div", "checks");
+  (S.vocab.information_classes || []).forEach(i => {
+    const lab = el("label");
+    const cb = el("input"); cb.type = "checkbox"; cb.value = i.value;
+    lab.append(cb, document.createTextNode(i.label));
+    infoBox.append(lab);
+  });
+
+  const go = el("button", "primary", "Check");
+  const out = el("div");
+
+  go.onclick = async () => {
+    out.textContent = "";
+    out.append(spinnerPanel("Checking…"));
+    try {
+      const d = await post("/api/check", {
+        family: fam.value,
+        usage_category: cat.value,
+        runtime: rt.value || null,
+        solution_name: sol.value || null,
+        version: ver.value || null,
+        information_classes: [...infoBox.querySelectorAll("input:checked")].map(i => i.value),
+      });
+      out.textContent = "";
+      out.append(renderDecision(d));
+    } catch (e) {
+      out.textContent = "";
+      out.append(banner("bad", "Check failed", e.message));
+    }
+  };
+
+  const form = el("div");
+  form.append(grid);
+  const w = el("div", "field"); w.style.marginTop = "14px";
+  w.append(el("label", null, "What information will it process? (Appendix D.3)"), infoBox);
+  form.append(w);
+  const bar = el("div"); bar.style.marginTop = "16px"; bar.append(go);
+  form.append(bar);
+
+  host.append(card("Describe the intended use", form));
+  host.append(out);
+  setPanel(host);
+}
+
+function renderDecision(d) {
+  const host = el("div");
+  const kind = d.verdict === "blocked" ? "blocked" : (d.verdict === "allowed" ? "allowed" : "conditions");
+  const box = el("div", "verdict " + kind);
+  const v = el("div", "v");
+  const icon = d.verdict === "blocked" ? "✕" : (d.verdict === "allowed" ? "✓" : "■");
+  const ic = el("span", null, icon); ic.setAttribute("aria-hidden", "true");
+  v.append(ic, el("span", null, {
+    blocked: "Not permitted", allowed: "Permitted", allowed_with_conditions: "Permitted, with conditions",
+  }[d.verdict] || titleCase(d.verdict)));
+  box.append(v);
+  box.append(el("p", null, d.summary || ""));
+  host.append(box);
+
+  const cols = [
+    { key: "passed", label: "Result", sortKey: r => (r.passed ? 1 : 0),
+      render: r => badge(VERDICT, r.passed ? "pass" : "fail", r.passed ? "Pass" : "Blocks") },
+    { key: "section", label: "Section", render: r => el("span", "chip sec", r.section) },
+    { key: "rule", label: "Rule checked" },
+    { key: "detail", label: "Why", wrap: true },
+  ];
+  host.append(card("Every check applied", buildTable(cols, d.checks, { sortKey: "passed" }), null, true));
+
+  if ((d.conditions || []).length) {
+    const cc = [
+      { key: "code", label: "Code", render: r => el("span", "chip sec", r.code) },
+      { key: "requirement", label: "Requirement", wrap: true },
+    ];
+    host.append(card("Conditions that apply", buildTable(cc, d.conditions), null, true));
+  }
+  if ((d.required_actions || []).length) {
+    const ul = el("ul");
+    d.required_actions.forEach(a => ul.append(el("li", null, a)));
+    host.append(card("What you have to do", ul));
+  }
+  return host;
+}
+
+/* ------------------------------------------------------------- advisories - */
+
+async function panelAdvisories() {
+  const data = S.cache.advisories || (S.cache.advisories = await api("/api/advisories"));
+  const host = el("div");
+
+  const rt = el("select");
+  [["all","All runtimes"], ...(data.runtimes || []).map(r => [r, r])]
+    .forEach(([v,l]) => { const o = el("option", null, l); o.value = v; rt.append(o); });
+  const sev = el("select");
+  [["all","All severities"],["critical","Critical"],["high","High"],["moderate","Moderate"],["low","Low"]]
+    .forEach(([v,l]) => { const o = el("option", null, l); o.value = v; sev.append(o); });
+  const search = el("input"); search.type = "text"; search.placeholder = "Search…";
+  const controls = el("div", "filterbar"); controls.append(rt, sev, search);
+
+  const tot = data.totals_by_severity || {};
+  const summary = el("div");
+  Object.entries(tot).sort().forEach(([k, n]) => {
+    const b = badge(SEVERITY, (k || "unknown").toLowerCase());
+    b.append(document.createTextNode(` ${n}`));
+    summary.append(b, document.createTextNode(" "));
+  });
+
+  const body = el("div");
+  const cols = [
+    { key: "severity", label: "Severity", sortKey: r => ({critical:0,high:1,moderate:2,low:3,unknown:4}[r.severity] ?? 9),
+      render: r => badge(SEVERITY, r.severity) },
+    { key: "id", label: "Advisory", render: r => {
+        if (!r.url) return r.id;
+        const a = el("a", null, r.id); a.href = r.url; a.target = "_blank"; a.rel = "noopener"; return a;
+      } },
+    { key: "runtime", label: "Runtime" },
+    { key: "package", label: "Package" },
+    { key: "summary", label: "Summary", wrap: true },
+    { key: "published_at", label: "Published", mono: true, render: r => fmtDate(r.published_at) },
+  ];
+
+  function draw() {
+    const q = (search.value || "").toLowerCase();
+    const rows = (data.advisories || []).filter(a =>
+      (rt.value === "all" || a.runtime === rt.value) &&
+      (sev.value === "all" || a.severity === sev.value) &&
+      (!q || `${a.id} ${a.package} ${a.summary}`.toLowerCase().includes(q))
+    );
+    body.textContent = "";
+    body.append(card(`Advisories on the inference stack — ${rows.length} shown`,
+      buildTable(cols, rows, { sortKey: "severity",
+        emptyText: "No advisories match." }), null, true));
+  }
+  rt.onchange = sev.onchange = draw;
+  search.oninput = draw;
+
+  host.append(card("Vulnerabilities affecting runtimes and libraries (Sections 7.4, 11.4)", (() => {
+    const d = el("div");
+    d.append(el("p", null,
+      "Advisories land on the runtime and its libraries, not on model weights. " +
+      "Every model family running on a given runtime inherits its exposure."));
+    d.append(summary);
+    const sp = el("div"); sp.style.marginTop = "14px"; sp.append(controls);
+    d.append(sp);
+    return d;
+  })()));
+  host.append(body);
+  draw();
+  setPanel(host);
+}
+
+/* --------------------------------------------------------------- families - */
+
+async function panelFamilies() {
+  const data = S.cache.families || (S.cache.families = await api("/api/families"));
+  const host = el("div");
+  const only = el("select");
+  [["all","All"],["no","Not in the registry"],["yes","In the registry"]]
+    .forEach(([v,l]) => { const o = el("option", null, l); o.value = v; only.append(o); });
+  const search = el("input"); search.type = "text"; search.placeholder = "Search…";
+  const controls = el("div", "filterbar");
+  controls.append(el("span", "lede", "Show"), only, search);
+
+  const cols = [
+    { key: "family_key", label: "Family", render: r => el("strong", null, r.family_key) },
+    { key: "in_registry", label: "Governed?",
+      render: r => badge(r.in_registry ? VERDICT : URGENCY, r.in_registry ? "pass" : "informational",
+                         r.in_registry ? "In registry" : "Not evaluated") },
+    { key: "artefacts", label: "Artefacts", num: true, render: r => fmtInt(r.artefacts) },
+    { key: "downloads", label: "Downloads", num: true, render: r => fmtInt(r.downloads) },
+    { key: "publishers", label: "Publishers", sortKey: r => (r.publishers||[]).join(),
+      render: r => chips(r.publishers) },
+    { key: "licenses", label: "Licences seen", sortKey: r => (r.licenses||[]).length,
+      render: r => chips(r.licenses) },
+    { key: false, label: "", render: r => {
+        const b = el("button", "sm", "Assess");
+        b.onclick = () => { S.cache.assessFamily = r.family_key; S.tab = "assess"; renderTabs(); renderPanel(); };
+        return b;
+      } },
+  ];
+
+  const body = el("div");
+  function draw() {
+    const q = (search.value || "").toLowerCase();
+    const rows = (data.families || []).filter(f =>
+      (only.value === "all" || (only.value === "yes") === f.in_registry) &&
+      (!q || `${f.family_key} ${(f.publishers||[]).join(" ")}`.toLowerCase().includes(q))
+    );
+    body.textContent = "";
+    body.append(card(`Model families observed across sources — ${rows.length}`,
+      buildTable(cols, rows, { sortKey: "downloads", sortDir: -1,
+        emptyText: "Nothing observed yet — press Refresh data." }), null, true));
+  }
+  only.onchange = draw; search.oninput = draw;
+  host.append(controls);
+  host.append(body);
+  draw();
+  setPanel(host);
+}
+
+/* ------------------------------------------------------------------ intel - */
+
+async function panelIntel() {
+  const host = el("div");
+  const q = el("input"); q.type = "text"; q.placeholder = "Search titles and summaries…";
+  q.value = S.cache.intelQ || "";
+  const tier = el("select");
+  [["all","All sources"],["citable","Citable as evidence only"],["authoritative","Authoritative"],
+   ["community","Community"],["aggregator","Aggregator (leads only)"]]
+    .forEach(([v,l]) => { const o = el("option", null, l); o.value = v; tier.append(o); });
+  tier.value = S.cache.intelTier || "all";
+  const go = el("button", null, "Search");
+  const controls = el("div", "filterbar"); controls.append(q, tier, go);
+  const body = el("div");
+
+  const cols = [
+    { key: "tier", label: "Source", render: r => {
+        const d = el("div");
+        d.append(badge(TIER, r.tier));
+        d.append(el("div", null, r.source));
+        return d;
+      } },
+    { key: "title", label: "Title", wrap: true, render: r => {
+        if (!r.url) return r.title;
+        const a = el("a", null, r.title || r.url); a.href = r.url; a.target = "_blank"; a.rel = "noopener"; return a;
+      } },
+    { key: "summary", label: "Summary", wrap: true },
+    { key: "family", label: "Family" },
+    { key: "published_at", label: "Published", mono: true, render: r => fmtDate(r.published_at) },
+  ];
+
+  async function run() {
+    S.cache.intelQ = q.value; S.cache.intelTier = tier.value;
+    body.textContent = ""; body.append(spinnerPanel("Searching…"));
+    const data = await api(`/api/intelligence?q=${encodeURIComponent(q.value)}&tier=${tier.value}`);
+    const agg = (data.results || []).filter(r => !r.citable).length;
+    body.textContent = "";
+    body.append(card(`${data.results.length} results — ${agg} from aggregator sources (leads only)`,
+      buildTable(cols, data.results, { sortKey: "published_at", sortDir: -1,
+        emptyText: "No matches." }), null, true));
+  }
+  go.onclick = run;
+  q.onkeydown = e => { if (e.key === "Enter") run(); };
+
+  host.append(controls);
+  host.append(body);
+  setPanel(host);
+  run();
+}
+
+/* ---------------------------------------------------------------- sources - */
+
+async function panelSources() {
+  const data = await api("/api/sources");
+  const host = el("div");
+  const cols = [
+    { key: "healthy", label: "State", sortKey: r => (r.ever_run ? (r.healthy ? 2 : 0) : 1),
+      render: r => r.ever_run ? badge(VERDICT, r.healthy ? "pass" : "fail", r.healthy ? "OK" : `Failing (${r.consecutive_failures})`)
+                              : badge(VERDICT, "unknown", "Never run") },
+    { key: "name", label: "Source", render: r => {
+        const d = el("div");
+        d.append(el("strong", null, r.name));
+        d.append(el("div", null, r.id));
+        return d;
+      } },
+    { key: "tier", label: "Trust", render: r => badge(TIER, r.tier) },
+    { key: "items", label: "Items", num: true, render: r => fmtInt(r.items) },
+    { key: "last_success_at", label: "Last success", render: r => r.last_success_at ? relTime(r.last_success_at) : "never" },
+    { key: "notes", label: "Notes", wrap: true, render: r => {
+        const d = el("div");
+        if (r.notes) d.append(el("div", null, r.notes));
+        if (r.last_error) { const e = el("div", null, "Last error: " + r.last_error); e.style.color = "var(--critical)"; d.append(e); }
+        return d.childNodes.length ? d : document.createTextNode("—");
+      } },
+  ];
+  host.append(card("Where the data comes from, and whether it is fresh",
+    buildTable(cols, data.sources, { sortKey: "healthy" }), null, true));
+  host.append(card("How trust tiers work", (() => {
+    const dl = el("dl", "kv");
+    dl.append(el("dt", null, "Authoritative"));
+    dl.append(el("dd", null, "Publisher of record or official API. Citable as Section 7 evidence."));
+    dl.append(el("dt", null, "Community"));
+    dl.append(el("dd", null, "Recognised community or industry project. Citable as evidence."));
+    dl.append(el("dt", null, "Leads only"));
+    dl.append(el("dd", null, "News aggregation, possibly machine-generated. Can raise a candidate worth investigating, but never cited for a provenance, licensing or vulnerability conclusion (Section 7.1)."));
+    return dl;
+  })()));
+  setPanel(host);
+}
+
+/* =================================================================== boot = */
+
+(async function boot() {
+  try { S.vocab = await api("/api/vocabulary"); }
+  catch (e) {
+    $("#banners").append(banner("bad", "Cannot reach the tracker", e.message));
+    return;
+  }
+  await loadOverview();
+  renderTabs();
+  await renderPanel();
+  pollIngest();
+})();
+</script>
+</body>
+</html>

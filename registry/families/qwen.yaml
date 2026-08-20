@@ -1,0 +1,28 @@
+# Qwen - registry entry (Appendix B)
+# Governance of Local and Open-Source AI Models v1.1
+# Edit deliberately: git history is the Section 9.1 audit record.
+key: qwen
+name: Qwen
+kind: model_family
+model_type: llm
+approval_status: approved_with_conditions
+lifecycle_status: active
+approved_uses:
+- research_experimentation
+conditions:
+- C1
+- C6
+runtime_compatibility:
+- ollama
+approving_authority: AI Governance
+approval_date: '2026-08-20'
+review_date: '2027-08-20'
+last_review: '2026-08-20'
+decision_history:
+- date: '2026-08-20'
+  outcome: approved_with_conditions
+  authority: AI Governance
+  rationale: Apache-2.0, official publisher, safetensors weights. Ollama advisory exposure reviewed; restricted
+    to research pending patch confirmation.
+notes: Scaffolded entry. Complete the Appendix A checklist and record a Section 6.3 decision via `lomst
+  decide` before any use.
