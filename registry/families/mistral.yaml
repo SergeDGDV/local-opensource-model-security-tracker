@@ -1,0 +1,60 @@
+# Mistral - registry entry (Appendix B)
+# Governance of Local and Open-Source AI Models v1.1
+key: mistral
+name: Mistral
+kind: model_family
+model_type: llm
+developer: Mistral AI
+approval_status: approved
+lifecycle_status: active
+approved_versions:
+  - '0.3'
+approved_uses:
+  - research_experimentation
+  - internal_productivity
+  - internal_business_applications
+conditions:
+  - C9   # Documented, tested fallback required before production use (Section 8.5)
+license: apache-2.0
+distribution_source: https://huggingface.co/mistralai
+runtime_compatibility:
+  - ollama
+  - vllm
+business_owner: Publishing Technology
+governance_owner: AI Governance
+approving_authority: AI Governance
+approval_date: '2026-03-02'
+review_date: '2026-09-02'
+last_review: '2026-03-02'
+security_notes: >-
+  Apache-2.0 across the open-weight releases, published in safetensors format
+  from the official mistralai organisation. Note that several Mistral releases
+  (Magistral, and the Research-licensed variants) are NOT Apache-2.0 and are
+  tracked as separate families; do not assume licence parity across the range.
+documentation:
+  - https://docs.mistral.ai/getting-started/models/
+dependent_solutions:
+  # Deliberately non-compliant seed: this is what Section 8.5 exists to catch.
+  # `lomst actions` reports it as a fallback_gap until the fallback is tested.
+  - name: Localisation glossary enrichment
+    usage_category: internal_business_applications
+    owner: Localisation
+    description: >-
+      Enriches translation glossary entries for internal localisation tooling.
+      Depends on Mistral with no alternative currently wired in.
+    fallback:
+      kind: alternate_model
+      description: >-
+        Intended fallback is Gemma via the same Ollama runtime, but the swap has
+        not been exercised and Gemma is not yet an approved family.
+      tested: false
+decision_history:
+  - date: '2026-03-02'
+    outcome: approved
+    authority: AI Governance
+    rationale: >-
+      Permissive Apache-2.0 licence, official publisher, safetensors weights,
+      actively maintained. Approved up to Internal Business Applications with
+      C9 attached, so a tested fallback is required before any production move.
+    versions:
+      - '0.3'

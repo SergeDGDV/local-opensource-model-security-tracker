@@ -1,0 +1,17 @@
+# Runtime state: the SQLite observation store is a cache, not the audit record.
+# Governance decisions live in registry/*.yaml and ARE tracked.
+var/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.DS_Store

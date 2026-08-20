@@ -1,0 +1,64 @@
+# Llama - registry entry (Appendix B)
+# Governance of Local and Open-Source AI Models v1.1
+# Seeded from the Appendix B.1 worked example. Edit deliberately: git history is
+# the Section 9.1 audit record.
+key: llama
+name: Llama
+kind: model_family
+model_type: llm
+developer: Meta
+approval_status: approved_with_conditions
+lifecycle_status: active
+approved_versions:
+  - '4.0'
+approved_uses:
+  - research_experimentation
+  - internal_productivity
+conditions:
+  - C2   # Legal review required - community licence carries an acceptable use policy
+  - C6   # Restricted to approved execution environments
+restrictions:
+  - Customer-facing applications are excluded (Appendix B.1 Restricted Use).
+  - Confidential, personal and customer information excluded pending Sensitive
+    Information Processing approval (Sections 8.3, 11.2).
+license: llama_4_community_license_agreement
+distribution_source: https://huggingface.co/meta-llama
+runtime_compatibility:
+  - ollama
+  - vllm
+business_owner: TBD - assign per Section 12 (Solution Owners)
+governance_owner: AI Governance
+approving_authority: AI Governance
+approval_date: '2026-01-15'
+review_date: '2027-01-15'
+last_review: '2026-01-15'
+security_notes: >-
+  Community licence includes an acceptable use policy and a downstream naming
+  obligation; Legal review recorded as condition C2. Weights published in
+  safetensors format at the official Meta repositories.
+documentation:
+  - https://www.llama.com/llama4/
+  - https://github.com/meta-llama/llama-models
+dependent_solutions:
+  - name: Local QA summarisation pilot (PDS Green)
+    usage_category: internal_productivity
+    owner: PDS Green QA
+    description: >-
+      Pilot summarisation of internal QA reports on managed workstations. Not
+      business-critical; recorded so the dependency is visible if approval
+      changes (Sections 8.5, 9).
+    fallback:
+      kind: manual_process
+      description: Revert to manual QA triage as performed before the pilot.
+      tested: true
+      tested_date: '2026-01-15'
+decision_history:
+  - date: '2026-01-15'
+    outcome: approved_with_conditions
+    authority: AI Governance
+    rationale: >-
+      Official publisher and distribution channel confirmed; safetensors weights
+      available; community licence requires Legal review (C2). Approved for
+      research and internal productivity only, excluding customer-facing use.
+    versions:
+      - '4.0'

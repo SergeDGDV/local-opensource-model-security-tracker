@@ -1,0 +1,22 @@
+{
+  "_comment": [
+    "Copy the `mcpServers` block into your MCP client configuration.",
+    "Replace ABSOLUTE_PATH_TO_REPO with the real path in both places.",
+    "LOMST_HOME is required: the server starts with an arbitrary working directory.",
+    "",
+    "Optional env:",
+    "  GITHUB_TOKEN            raises the GitHub API limit from 60 to 5000 req/h",
+    "  LOMST_ALLOW_DECISIONS=1 lets record_decision write approvals. Off by",
+    "                          default so the assistant hands a command to a human",
+    "                          instead - Section 13 step 4 is an act by a named",
+    "                          approving authority."
+  ],
+  "mcpServers": {
+    "lomst": {
+      "command": "ABSOLUTE_PATH_TO_REPO/.venv/bin/lomst-mcp",
+      "env": {
+        "LOMST_HOME": "ABSOLUTE_PATH_TO_REPO"
+      }
+    }
+  }
+}

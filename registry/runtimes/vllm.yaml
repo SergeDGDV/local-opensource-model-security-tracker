@@ -1,0 +1,49 @@
+# vLLM - runtime registry entry (Appendix C / Section 10)
+key: vllm
+name: vLLM
+kind: runtime
+model_type: other
+developer: vLLM project (PyTorch Foundation)
+approval_status: approved_with_conditions
+lifecycle_status: active
+approved_uses:
+  - research_experimentation
+  - internal_productivity
+  - internal_business_applications
+conditions:
+  - C1   # Information Security review required
+  - C4   # Enterprise Architecture review required
+  - C6   # Restricted to approved execution environments
+  - C7   # Enhanced monitoring required
+restrictions:
+  - Server deployment only, within approved infrastructure. Not for unmanaged workstations.
+  - >-
+    API authentication must be enforced by the surrounding platform; vLLM's
+    --api-key flag is a single shared secret and is not sufficient on its own
+    for multi-team use (Section 10.3).
+license: Apache-2.0
+distribution_source: https://pypi.org/project/vllm/
+business_owner: IT / Platform
+governance_owner: AI Governance
+approving_authority: Infra / Platform / IT
+approval_date: '2026-02-01'
+review_date: '2026-08-01'
+last_review: '2026-02-01'
+security_notes: >-
+  High historical CVE volume relative to other runtimes in this registry,
+  including critical remote-code-execution issues in model and request
+  deserialisation paths. Section 10.3 requires security updates be applied
+  promptly and obsolete versions retired; pin and patch aggressively. Advisories
+  are tracked against the PyPI package `vllm`.
+documentation:
+  - https://docs.vllm.ai/
+  - https://github.com/vllm-project/vllm/security/advisories
+decision_history:
+  - date: '2026-02-01'
+    outcome: approved_with_conditions
+    authority: Infra / Platform / IT
+    rationale: >-
+      Apache-2.0, actively maintained, strong operational maturity for server
+      inference. Approved for managed infrastructure only given the advisory
+      volume; review date set at six months rather than twelve to match the
+      patch cadence (Section 9.2).

@@ -1,0 +1,48 @@
+# Ollama - runtime registry entry (Appendix C / Section 10)
+# Runtimes are governed as independent components: approval of a model does not
+# imply approval of any runtime capable of executing it (Section 10).
+key: ollama
+name: Ollama
+kind: runtime
+model_type: other
+developer: Ollama
+approval_status: approved_with_conditions
+lifecycle_status: active
+approved_uses:
+  - research_experimentation
+  - internal_productivity
+conditions:
+  - C1   # Information Security review required
+  - C6   # Restricted to approved execution environments
+  - C7   # Enhanced monitoring required
+restrictions:
+  - >-
+    The API must not be exposed on organisational networks without
+    authentication. Section 10.3 prohibits unauthenticated shared services
+    unless explicitly approved for a defined purpose.
+  - Install via approved software distribution mechanisms only (Section 10.2).
+license: MIT
+distribution_source: https://ollama.com/download
+business_owner: IT / Platform
+governance_owner: AI Governance
+approving_authority: Infra / Platform / IT
+approval_date: '2026-01-15'
+review_date: '2026-10-15'
+last_review: '2026-01-15'
+security_notes: >-
+  Ollama serves an unauthenticated HTTP API on 127.0.0.1:11434 by default and
+  has no built-in authentication or authorisation, so Section 10.3 requires it
+  stay loopback-bound on workstations. It also downloads model artefacts
+  automatically, which Section 10.2 requires be understood before approval.
+  Track advisories against github.com/ollama/ollama.
+documentation:
+  - https://github.com/ollama/ollama
+  - https://docs.ollama.com/
+decision_history:
+  - date: '2026-01-15'
+    outcome: approved_with_conditions
+    authority: Infra / Platform / IT
+    rationale: >-
+      Actively maintained, MIT licensed, official distribution available.
+      Approved for workstation use with loopback binding and endpoint monitoring;
+      shared network deployment requires separate approval under Section 10.3.

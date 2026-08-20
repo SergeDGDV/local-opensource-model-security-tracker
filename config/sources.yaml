@@ -1,0 +1,161 @@
+# Ingest sources.
+#
+# `tier` controls how the classifier may use what a source says (see
+# lomst.governance.vocab.SourceTier):
+#   authoritative -> citable as Section 7 evidence
+#   community     -> citable as Section 7 evidence
+#   aggregator    -> LEADS ONLY. Surfaces candidates for review; never cited as
+#                    provenance, licensing or vulnerability evidence.
+#
+# Every endpoint below was verified live. `robots` notes record access
+# constraints we deliberately honour.
+
+sources:
+  # ---------------------------------------------------------------- user list
+  - id: llm_stats
+    name: LLM Updates Today (llm-stats.com)
+    connector: llm_stats
+    tier: community
+    url: https://llm-stats.com/
+    enabled: true
+    # robots.txt disallows /api/, /playground/share/, /share/. We parse only the
+    # public pages under Allow: / and never touch the JSON API.
+    robots: "Disallow /api/ - honoured; public pages only"
+
+  - id: evertune
+    name: Evertune AI Model Release Tracker
+    connector: evertune
+    tier: community
+    url: https://models.evertune.ai/ai-model-tracker.json
+    enabled: true
+    # Payload carries its own `license` and `attribution` fields; ingest stores
+    # them verbatim and the digest reproduces the attribution.
+    notes: "Curated + human-reviewed daily; covers hosted models too, so entries are filtered for local/open-weight relevance."
+
+  - id: owasp_genai
+    name: OWASP GenAI Security Project
+    connector: wordpress
+    tier: community
+    url: https://genai.owasp.org
+    enabled: true
+    # WordPress REST API. Richer than /feed/ (modified dates, categories, tags)
+    # and paginates properly.
+    notes: "Primary source for GenAI threat taxonomy and LLM Top 10 guidance feeding Section 7.4."
+
+  - id: awesome_ai_security
+    name: Awesome AI Security (GitHub)
+    connector: github_awesome
+    tier: community
+    enabled: true
+    # "Awesome AI Security" is an ambiguous name - several well-known lists share
+    # it. Rather than guess, we track the leading ones and attribute per repo.
+    repos:
+      - DeepSpaceHarbor/Awesome-AI-Security
+      - ottosulin/awesome-ai-security
+      - TalEliyahu/Awesome-AI-Security
+      - corca-ai/awesome-llm-security
+      - scadastrangelove/awesome-ai-security-tools
+
+  - id: obot
+    name: Obot AI (open-source AI security tooling)
+    connector: wordpress
+    tier: community
+    url: https://obot.ai
+    enabled: true
+    notes: "Vendor blog. Useful for runtime/tooling landscape (Section 10); vendor claims are not treated as independent security evidence."
+
+  - id: wilder_ai_artiverse
+    name: Wilder AI coverage via Artiverse.ca
+    connector: wordpress
+    tier: aggregator
+    url: https://www.artiverse.ca
+    enabled: true
+    # Artiverse states: "The majority of content published on Artiverse.ca is
+    # generated using artificial intelligence" and asks readers to verify
+    # independently. Under Section 7.1 that cannot be provenance evidence.
+    # Retained as a lead generator because it is on the requested source list.
+    notes: "Self-declared majority AI-generated content. LEADS ONLY - excluded from evidence by tier."
+
+  - id: radarai
+    name: RadarAI
+    connector: rss
+    tier: aggregator
+    url: https://radarai.top/feed.xml
+    enabled: true
+    notes: "Chinese-language AI/open-source aggregation radar. Good early signal on new open-weight releases; leads only."
+
+  # ------------------------------------------- provenance / licence / CVE facts
+  # Added because the user list carries news and tooling but no per-model
+  # provenance, licence or vulnerability facts, which Sections 7.1-7.4 require.
+  - id: huggingface
+    name: Hugging Face Hub API
+    connector: huggingface
+    tier: authoritative
+    url: https://huggingface.co/api
+    enabled: true
+    # Publisher (author), licence tag, gated flag, lastModified, file manifest.
+    # Directly populates Appendix A.2.
+    watch_authors:
+      - meta-llama
+      - mistralai
+      - google
+      - microsoft
+      - Qwen
+      - deepseek-ai
+      - allenai
+      - HuggingFaceTB
+      - nvidia
+      - openai
+    min_downloads: 5000
+
+  - id: osv
+    name: OSV.dev vulnerability database
+    connector: osv
+    tier: authoritative
+    url: https://api.osv.dev/v1/query
+    enabled: true
+    # Section 7.4 / 11.4. Queried per approved runtime, not per model, because
+    # CVEs land on the inference stack.
+    packages:
+      - {ecosystem: PyPI, name: vllm}
+      - {ecosystem: PyPI, name: transformers}
+      - {ecosystem: PyPI, name: torch}
+      - {ecosystem: PyPI, name: llama-cpp-python}
+      - {ecosystem: PyPI, name: onnxruntime}
+      - {ecosystem: PyPI, name: sentence-transformers}
+      - {ecosystem: Go, name: github.com/ollama/ollama}
+
+  - id: ghsa
+    name: GitHub Security Advisories
+    connector: ghsa
+    tier: authoritative
+    url: https://api.github.com/advisories
+    enabled: true
+    # Unauthenticated works but is rate-limited to 60/h; set GITHUB_TOKEN to
+    # raise it to 5000/h.
+    ecosystems: [pip, go, npm]
+    severities: [high, critical]
+
+  - id: ollama_library
+    name: Ollama model library
+    connector: ollama
+    tier: authoritative
+    url: https://ollama.com/library
+    enabled: true
+    notes: "What is actually pullable on a workstation. Distribution source evidence for Section 7.2."
+
+# Runtimes tracked as independent components under Section 5 / Section 10.
+# Approval of a model never implies approval of these.
+runtimes:
+  - id: ollama
+    name: Ollama
+    osv: [{ecosystem: Go, name: github.com/ollama/ollama}]
+  - id: llama_cpp
+    name: llama.cpp
+    osv: [{ecosystem: PyPI, name: llama-cpp-python}]
+  - id: vllm
+    name: vLLM
+    osv: [{ecosystem: PyPI, name: vllm}]
+  - id: lm_studio
+    name: LM Studio
+    osv: []
