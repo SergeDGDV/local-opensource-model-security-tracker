@@ -6,8 +6,9 @@ v1.1**.
 
 It does three things:
 
-1. **Ingests** eleven sources daily — the seven you nominated, plus four that
+1. **Ingests** thirteen sources daily — the seven you nominated, plus six that
    supply the per-model provenance, licence and CVE facts §7 actually requires.
+   Roughly **9,000 model artefacts** across **61 families**.
 2. **Classifies** model families against the five §7 criteria, producing an
    evidence-backed *recommendation* — never an approval.
 3. **Gates usage** — answers "may I use model X on runtime Y for purpose Z with
@@ -35,7 +36,8 @@ That is the whole workflow for a non-technical user: buttons and tables.
 | **Assess a model** | Pick a family, press Assess — the five §7 criteria with cited evidence |
 | **Can I use it?** | Fill in the form, get a permitted / not-permitted answer and every check behind it |
 | **Vulnerabilities** | Advisories on the runtimes, filterable by severity |
-| **Models seen** | What is out in the wild and whether it is governed |
+| **All models** | The full ~9,000-artefact inventory: search by name, publisher or licence; filter by distribution, weight format (incl. pickle-only), family or source |
+| **Families** | The §6.1 family rollup — what we govern vs. what is merely observed |
 | **Intelligence** | Everything ingested, labelled by how much it can be trusted |
 | **Sources** | Whether each feed is fresh or stale |
 
@@ -116,19 +118,21 @@ Trust tier controls whether a source can be *cited as evidence* or is only a
 *lead*. §7.1 requires provenance evidence from reputable, preferably official
 channels, so this distinction is enforced in code, not left to the reader.
 
-| Source | Access | Tier |
-|---|---|---|
-| llm-stats.com | HTML (Next.js RSC payload) | community |
-| Evertune AI Model Tracker | JSON (`models.evertune.ai`) | community |
-| OWASP GenAI Security Project | WordPress REST | community |
-| Awesome AI Security (5 repos) | GitHub API | community |
-| Obot | WordPress REST | community |
-| **Wilder AI via Artiverse.ca** | WordPress REST | **aggregator — leads only** |
-| **RadarAI** | RSS | **aggregator — leads only** |
-| Hugging Face Hub | JSON API | authoritative |
-| OSV.dev | JSON API | authoritative |
-| GitHub Security Advisories | JSON API | authoritative |
-| Ollama library | HTML | authoritative |
+| Source | Access | Tier | Yield |
+|---|---|---|---|
+| llm-stats.com | HTML (Next.js RSC payload) | community | 356 models |
+| Evertune AI Model Tracker | JSON (`models.evertune.ai`) | community | 124 releases |
+| OWASP GenAI Security Project | WordPress REST | community | 29 posts |
+| Awesome AI Security (5 repos) | GitHub API | community | 382 tools |
+| Obot | WordPress REST | community | 40 posts |
+| **Wilder AI via Artiverse.ca** | WordPress REST | **aggregator — leads only** | 40 items |
+| **RadarAI** | RSS | **aggregator — leads only** | 50 items |
+| Hugging Face Hub | JSON API | authoritative | **7,938 repos** |
+| OpenRouter | JSON API | authoritative | 416 (167 open-weight) |
+| OSV.dev | JSON API | authoritative | 249 advisories |
+| GitHub Security Advisories | JSON API | authoritative | 81 advisories |
+| CISA KEV | JSON | authoritative | 10 **actively exploited** |
+| Ollama library | HTML | authoritative | 235 pullable |
 
 Aggregator-tier material can raise a candidate worth investigating but is never
 cited for a provenance, licensing or vulnerability conclusion.
@@ -151,11 +155,34 @@ Your seven cover news and tooling but carry no per-model facts. Without these,
 - **Hugging Face** — publisher of record, licence tag, gated flag, and the file
   manifest. The manifest matters: pickle-format weights (`.bin`, `.pt`, `.ckpt`)
   execute arbitrary code on load, which §7.4 calls an insecure execution
-  practice. `lomst` fails §7.2 for a family that ships *only* pickle weights.
+  practice. **865 of the tracked repos publish pickle weights with no safetensors
+  alternative** — filterable in the UI.
+- **OpenRouter** — §8.5 names "an alternate provider" as a valid fallback. 167
+  catalogue entries carry a `hugging_face_id`, i.e. open weights *with* a hosted
+  endpoint, which turns that fallback question into a fact on file.
 - **OSV + GitHub Advisories** — CVEs land on the *inference stack*, not on model
   weights. At the time of writing: vLLM 24 critical / 23 high, Ollama 1 critical
   / 11 high, llama.cpp 2 critical.
+- **CISA KEV** — the strongest §11.4 signal there is: not "a flaw exists" but
+  "it is being exploited right now". Currently 10 AI-stack entries, including
+  Langflow RCE ×5, LiteLLM command injection, Ray code injection, MLflow SSRF.
 - **Ollama library** — what is actually pullable onto a workstation.
+
+### How Hugging Face discovery works
+
+Four strategies, because each answers a different governance question. An
+earlier version watched ten hand-listed organisations and saw ~250 repos out of
+roughly two million; the Hub serves 1000 records per page in under a second, so
+the narrow scope bought nothing.
+
+| Strategy | Question it answers | Yield |
+|---|---|---|
+| `publishers` | What did the publisher of record actually release? (§7.1) | ~2,960 |
+| `top_downloads` | What will people reach for, evaluated or not? | ~4,314 |
+| `trending` | What is about to be asked for? (§15.3) | ~220 |
+| `quantisers` | Third-party GGUF/AWQ repacks — independent artefacts *not* covered by a family's approval (§6.2) | ~443 |
+
+Raise the caps in `config/sources.yaml` freely; the cost is seconds.
 
 `llm-stats.com/robots.txt` disallows `/api/`. That is honoured centrally in
 `http.fetch`, which raises `RobotsDenied` rather than routing around it; the
@@ -311,7 +338,7 @@ src/lomst/
   webui/index.html           the whole UI - one file, no build step
   ingest.py digest.py cli.py mcp_server.py
 Launch Dashboard.command     double-click entry point for non-developers
-tests/                       112 tests
+tests/                       118 tests
 ```
 
 Seeded registry: `llama` (the Appendix B.1 worked example), `mistral`, and
@@ -319,7 +346,7 @@ runtimes `ollama` and `vllm`. `mistral` intentionally carries an **untested**
 fallback so `lomst actions` demonstrates the §8.5 gap it exists to catch.
 
 ```bash
-.venv/bin/python -m pytest -q       # 112 tests
+.venv/bin/python -m pytest -q       # 118 tests
 lomst probe                          # verify every source still parses
 ```
 
@@ -330,9 +357,11 @@ the HTML connectors raise a descriptive error naming the source to re-verify.
 
 ## Known limits
 
-- Family attribution is pattern-based. New families need an entry in
-  `extract.py:FAMILY_PATTERNS`; unknown families still appear via
-  `list_observed_families` so they are not invisible.
+- Family attribution is pattern-based and currently maps **67% of artefacts to
+  one of 61 families**. The unmapped third is genuine long tail (CI fixtures,
+  individual users' fine-tunes) and is shown as *unclassified* rather than
+  hidden — an unrecognised model is a governance gap, not a non-event. Add
+  entries to `extract.py:FAMILY_PATTERNS` as new families matter.
 - `OFFICIAL_PUBLISHERS` in `classify.py` is hand-maintained. A family absent from
   it returns `unknown` provenance rather than a false pass.
 - GitHub API is rate-limited to 60 req/h unauthenticated. Set `GITHUB_TOKEN` for

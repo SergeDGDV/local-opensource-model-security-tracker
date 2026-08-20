@@ -279,3 +279,111 @@ class GithubAwesomeConnector:
                 )
 
         return Result(observations=observations)
+
+
+# -------------------------------------------------------------------- CISA KEV
+
+
+class KevConnector:
+    """CISA Known Exploited Vulnerabilities catalogue.
+
+    The strongest signal in Section 11.4. An advisory says a flaw exists; a KEV
+    entry says it is *being exploited right now*, which is what should move an
+    organisation from "assess" to "patch or suspend". Section 11.4 lets the
+    organisation suspend or withdraw approval on severity, and nothing outranks
+    confirmed exploitation.
+
+    The catalogue is all of CISA's 1600+ entries across every vendor, so it is
+    filtered to the AI and ML stack. The filter is deliberately generous: a
+    false positive costs a human ten seconds, a false negative hides an actively
+    exploited RCE in the inference stack.
+    """
+
+    name = "kev"
+
+    #: Deliberately AI/ML-specific. Two earlier mistakes are corrected here:
+    #:
+    #: 1. Generic infrastructure (Redis, Elasticsearch, MinIO, Airflow) was
+    #:    included as "the ML stack". Those are ordinary IT components whose
+    #:    patching is not what Section 7.4 governs, and they dominated the
+    #:    results.
+    #: 2. The match ran over shortDescription too, so a Cisco IOS XR advisory
+    #:    matched "Redis" purely because its prose mentioned one. A KEV entry is
+    #:    about the *affected product*, so only vendor and product are matched.
+    #:
+    #: Precision matters more than recall here: a spurious "actively exploited
+    #: critical" would erode trust in the whole action list.
+    AI_STACK = re.compile(
+        r"\b(ollama|vllm|sglang|llama[\s._-]?cpp|llamaindex|llama[\s-]?index|"
+        r"mlflow|kubeflow|litellm|langchain|langflow|flowise|"
+        r"pytorch|torchserve|tensorflow|tensorboard|onnx|triton|"
+        r"jupyter|jupyterhub|jupyterlab|huggingface|hugging\s?face|"
+        r"gradio|comfyui|automatic1111|open[\s-]?webui|anythingllm|"
+        r"sagemaker|vertex\s?ai|bentoml|seldon|kserve|clearml|"
+        r"deepspeed|nemo|tritonserver|text[\s-]generation[\s-]inference)\b"
+        r"|^ray$|\bray[\s-]project\b|\bnvidia\b",
+        re.I,
+    )
+
+    def fetch(self, cfg: SourceConfig) -> Result:
+        url = cfg.url or (
+            "https://www.cisa.gov/sites/default/files/feeds/"
+            "known_exploited_vulnerabilities.json"
+        )
+        doc = fetch(url, check_robots=False).json()
+        entries = doc.get("vulnerabilities") or []
+
+        advisories: list[Advisory] = []
+        for v in entries:
+            # Vendor and product only - never the description (see AI_STACK).
+            haystack = f"{v.get('vendorProject') or ''} {v.get('product') or ''}".strip()
+            if not self.AI_STACK.search(haystack):
+                continue
+            product = f"{v.get('vendorProject','')}/{v.get('product','')}".strip("/")
+            advisories.append(
+                Advisory(
+                    advisory_id=f"KEV-{v['cveID']}",
+                    aliases=[v["cveID"]],
+                    ecosystem="cisa-kev",
+                    package=product or None,
+                    # Actively exploited outranks any CVSS bucket.
+                    severity="critical",
+                    summary=(
+                        f"ACTIVELY EXPLOITED. {v.get('vulnerabilityName','')}: "
+                        f"{strip_html(v.get('shortDescription'), 300) or ''} "
+                        f"Required action: {v.get('requiredAction','')}"
+                    ).strip(),
+                    url=f"https://nvd.nist.gov/vuln/detail/{v['cveID']}",
+                    published_at=iso_date(v.get("dateAdded")),
+                    modified_at=iso_date(v.get("dateAdded")),
+                    payload={
+                        "runtime_key": PACKAGE_RUNTIME.get((v.get("product") or "").lower()),
+                        "actively_exploited": True,
+                        "due_date": v.get("dueDate"),
+                        "ransomware_use": v.get("knownRansomwareCampaignUse"),
+                        "required_action": v.get("requiredAction"),
+                        "cwes": v.get("cwes") or [],
+                    },
+                )
+            )
+
+        observations = [
+            Observation(
+                external_id="kev:summary",
+                kind="vuln_summary",
+                title=f"CISA KEV: {len(advisories)} actively exploited flaws in the AI/ML stack",
+                url="https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+                summary=(
+                    f"Catalogue {doc.get('catalogVersion')} holds {doc.get('count')} entries; "
+                    f"{len(advisories)} touch AI or ML infrastructure. These are confirmed "
+                    f"exploited in the wild, which Section 11.4 treats as the top of the "
+                    f"severity scale."
+                ),
+                payload={
+                    "catalog_version": doc.get("catalogVersion"),
+                    "total": doc.get("count"),
+                    "ai_stack": len(advisories),
+                },
+            )
+        ]
+        return Result(observations=observations, advisories=advisories)

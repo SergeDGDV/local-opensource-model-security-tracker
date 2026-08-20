@@ -161,6 +161,15 @@ async def api_overview(request: Request):
             t: store.query(f"SELECT COUNT(*) c FROM {t}")[0]["c"]
             for t in ("observations", "advisories", "artefacts")
         }
+        counts["artefacts_unclassified"] = store.query(
+            "SELECT COUNT(*) c FROM artefacts WHERE family_key IS NULL"
+        )[0]["c"]
+        counts["families_observed"] = store.query(
+            "SELECT COUNT(DISTINCT family_key) c FROM artefacts WHERE family_key IS NOT NULL"
+        )[0]["c"]
+        counts["actively_exploited"] = store.query(
+            "SELECT COUNT(*) c FROM advisories WHERE source_id = 'kev' AND withdrawn_at IS NULL"
+        )[0]["c"]
         last = store.last_run()
         actions = review.all_actions(store, registry) if not registry_error else []
         by_urgency: dict[str, int] = {}
@@ -425,6 +434,131 @@ async def api_families(request: Request):
         store.close()
 
 
+async def api_artefacts(request: Request):
+    """Individual model artefacts.
+
+    The families rollup answers "what do we govern"; this answers "what is
+    actually out there". Those are different questions, and collapsing the second
+    into the first is why a 9000-artefact inventory previously looked like 30
+    rows. Anything without a family mapping is shown as unclassified rather than
+    filtered out - an unrecognised model is a governance gap, not a non-event.
+    """
+    cfg, store, registry = _ctx()
+    try:
+        qp = request.query_params
+        q = (qp.get("q") or "").strip()
+        distribution = qp.get("distribution") or "all"
+        family = qp.get("family") or "all"
+        source = qp.get("source") or "all"
+        weights = qp.get("weights") or "all"
+        limit = max(1, min(500, int(qp.get("limit") or 100)))
+        offset = max(0, int(qp.get("offset") or 0))
+
+        clauses: list[str] = []
+        params: list[Any] = []
+        if q:
+            clauses.append("(artefact_id LIKE ? OR publisher LIKE ? OR license LIKE ?)")
+            like = f"%{q}%"
+            params += [like, like, like]
+        if distribution != "all":
+            clauses.append("COALESCE(json_extract(payload,'$.distribution'),'') = ?")
+            params.append(distribution)
+        if family == "unclassified":
+            clauses.append("family_key IS NULL")
+        elif family != "all":
+            clauses.append("family_key = ?")
+            params.append(family)
+        if source != "all":
+            clauses.append("source_id = ?")
+            params.append(source)
+        if weights == "safetensors":
+            clauses.append("json_extract(payload,'$.has_safetensors') = 1")
+        elif weights == "pickle_only":
+            # Section 7.4: loading pickle weights executes arbitrary code.
+            clauses.append(
+                "json_extract(payload,'$.has_pickle_weights') = 1 "
+                "AND COALESCE(json_extract(payload,'$.has_safetensors'),0) = 0"
+            )
+        elif weights == "gguf":
+            clauses.append("json_extract(payload,'$.has_gguf') = 1")
+        elif weights == "gated":
+            clauses.append("gated = 1")
+
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        total = store.query(f"SELECT COUNT(*) c FROM artefacts {where}", tuple(params))[0]["c"]
+        rows = store.query(
+            f"""SELECT artefact_id, family_key, publisher, license, model_type, gated,
+                       downloads, version_label, url, modified_at, source_id, payload
+                FROM artefacts {where}
+                ORDER BY COALESCE(downloads,0) DESC, artefact_id
+                LIMIT ? OFFSET ?""",
+            (*params, limit, offset),
+        )
+
+        out = []
+        for r in rows:
+            try:
+                pl = json.loads(r["payload"] or "{}")
+            except json.JSONDecodeError:
+                pl = {}
+            out.append(
+                {
+                    "artefact_id": r["artefact_id"],
+                    "family": r["family_key"],
+                    "publisher": r["publisher"],
+                    "license": r["license"],
+                    "model_type": r["model_type"],
+                    "gated": bool(r["gated"]),
+                    "downloads": r["downloads"] or 0,
+                    "version": r["version_label"],
+                    "url": r["url"],
+                    "modified_at": r["modified_at"],
+                    "source": r["source_id"],
+                    "distribution": pl.get("distribution"),
+                    "has_safetensors": pl.get("has_safetensors"),
+                    "has_pickle_weights": pl.get("has_pickle_weights"),
+                    "has_gguf": pl.get("has_gguf"),
+                    "discovered_by": pl.get("discovered_by"),
+                    "hosted_alternative_for": pl.get("hosted_alternative_for"),
+                    "params_b": pl.get("params_b"),
+                }
+            )
+
+        facets = {
+            "distributions": [
+                r["d"]
+                for r in store.query(
+                    "SELECT DISTINCT COALESCE(json_extract(payload,'$.distribution'),'') d "
+                    "FROM artefacts WHERE d != '' ORDER BY d"
+                )
+            ],
+            "sources": [
+                r["source_id"]
+                for r in store.query(
+                    "SELECT DISTINCT source_id FROM artefacts ORDER BY source_id"
+                )
+            ],
+            "families": [
+                r["family_key"]
+                for r in store.query(
+                    "SELECT family_key, COUNT(*) n FROM artefacts "
+                    "WHERE family_key IS NOT NULL GROUP BY family_key ORDER BY n DESC"
+                )
+            ],
+        }
+        return JSONResponse(
+            {
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "artefacts": out,
+                "facets": facets,
+            }
+        )
+    finally:
+        store.close()
+
+
 async def api_intelligence(request: Request):
     cfg, store, registry = _ctx()
     try:
@@ -639,6 +773,7 @@ routes = [
     Route("/api/check", api_check, methods=["POST"]),
     Route("/api/advisories", api_advisories),
     Route("/api/families", api_families),
+    Route("/api/artefacts", api_artefacts),
     Route("/api/intelligence", api_intelligence),
     Route("/api/sources", api_sources),
     Route("/api/digest", api_digest),

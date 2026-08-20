@@ -93,9 +93,13 @@ sources:
     tier: authoritative
     url: https://huggingface.co/api
     enabled: true
-    # Publisher (author), licence tag, gated flag, lastModified, file manifest.
-    # Directly populates Appendix A.2.
-    watch_authors:
+    # Four discovery strategies rather than one allowlist. An earlier version
+    # watched ten organisations and saw ~250 repos out of roughly two million;
+    # the Hub serves 1000 records per page in under a second, so the narrow
+    # scope bought nothing. Raise the caps freely - the cost is seconds.
+    #
+    # 1. Publishers of record: the provenance backbone (Section 7.1).
+    publishers:
       - meta-llama
       - mistralai
       - google
@@ -106,7 +110,64 @@ sources:
       - HuggingFaceTB
       - nvidia
       - openai
-    min_downloads: 5000
+      - ibm-granite
+      - tiiuae
+      - CohereLabs
+      - stabilityai
+      - black-forest-labs
+      - BAAI
+      - nomic-ai
+      - moonshotai
+      - zai-org
+      - MiniMaxAI
+      - openai-community
+      - facebook
+      - sentence-transformers
+      - intfloat
+      - jinaai
+      - Snowflake
+      - answerdotai
+      - LiquidAI
+      - inclusionAI
+      - tencent
+    per_publisher: 150
+    # 2. Most-downloaded across the whole Hub, per task. This is what employees
+    #    will actually reach for, evaluated or not.
+    top_downloads: 900
+    pipelines:
+      - text-generation
+      - sentence-similarity
+      - automatic-speech-recognition
+      - image-text-to-text
+      - text-to-image
+      - feature-extraction
+    # 3. Trending: Section 15.3 asks that emerging families be evaluated
+    #    proactively rather than after someone has already deployed one.
+    trending: 400
+    # 4. Third-party redistributors. Section 6.2 treats a GGUF/AWQ repack as an
+    #    independent artefact NOT covered by the family's approval, so these
+    #    have to be visible to be governable. This is where most real local
+    #    deployments actually get their weights.
+    quantisers:
+      - bartowski
+      - unsloth
+      - mradermacher
+      - lmstudio-community
+      - TheBloke
+      - Qwen
+      - ggml-org
+    per_quantiser: 120
+
+  - id: openrouter
+    name: OpenRouter model catalogue
+    connector: openrouter
+    tier: authoritative
+    url: https://openrouter.ai/api/v1/models
+    enabled: true
+    # Section 8.5 names "an alternate provider" as a valid fallback. Entries
+    # carrying hugging_face_id are open-weight models with a hosted endpoint,
+    # which turns that fallback question into a fact on file.
+    notes: "Hosted availability of open-weight models - direct Section 8.5 alternate-provider evidence."
 
   - id: osv
     name: OSV.dev vulnerability database
@@ -135,6 +196,18 @@ sources:
     # raise it to 5000/h.
     ecosystems: [pip, go, npm]
     severities: [high, critical]
+
+  - id: kev
+    name: CISA Known Exploited Vulnerabilities
+    connector: kev
+    tier: authoritative
+    url: https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
+    enabled: true
+    # The strongest Section 11.4 signal available: not "a flaw exists" but "it is
+    # being exploited right now". Filtered to the AI/ML stack; recorded as
+    # critical regardless of CVSS, because confirmed exploitation outranks any
+    # score.
+    notes: "Actively exploited CVEs. Nothing outranks these for Section 11.4 escalation."
 
   - id: ollama_library
     name: Ollama model library

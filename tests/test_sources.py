@@ -249,3 +249,102 @@ def test_explicit_selection_overrides_disabled_flag():
     })
     assert cfg.enabled_sources() == []
     assert [s.id for s in cfg.enabled_sources(["a"])] == ["a"]
+
+
+# ------------------------------------------------------------------ CISA KEV
+
+
+def test_kev_filter_matches_ai_tooling():
+    from lomst.sources.security import KevConnector
+
+    rx = KevConnector.AI_STACK
+    for good in ("MLflow", "Ray-Project Ray", "BerriAI LiteLLM", "Langflow",
+                 "Ollama", "PyTorch", "NVIDIA Container Toolkit"):
+        assert rx.search(good), good
+
+
+def test_kev_filter_excludes_generic_infrastructure():
+    """Regression: Redis/Elasticsearch/Airflow are ordinary IT, not the AI stack.
+
+    Including them meant a Cisco IOS XR advisory matched on the word "Redis" in
+    its description. A spurious "actively exploited critical" undermines the
+    whole action list.
+    """
+    from lomst.sources.security import KevConnector
+
+    rx = KevConnector.AI_STACK
+    for bad in ("Cisco IOS XR", "Redis Debian-specific Redis Servers",
+                "Elastic Elasticsearch", "Apache Airflow", "MinIO MinIO",
+                "Microsoft Windows", "Fortinet FortiOS"):
+        assert not rx.search(bad), bad
+
+
+# ---------------------------------------------------------------- OpenRouter
+
+
+def test_openrouter_marks_open_weights_vs_hosted_only(monkeypatch):
+    """Section 8.5: an open-weight model with a hosted endpoint is a valid
+    alternate provider; a hosted-only model is out of Section 3 scope."""
+    from lomst.sources import providers
+
+    payload = {
+        "data": [
+            {"id": "qwen/qwen3-8b", "name": "Qwen3 8B",
+             "hugging_face_id": "Qwen/Qwen3-8B", "pricing": {"prompt": "0.00000002"},
+             "context_length": 128000, "architecture": {"modality": "text"}},
+            {"id": "vendor/secret-model", "name": "Secret", "hugging_face_id": None,
+             "pricing": {"prompt": "0.000001"}},
+        ]
+    }
+
+    class FakeResp:
+        def json(self):
+            return payload
+
+    monkeypatch.setattr(providers, "fetch", lambda *a, **k: FakeResp())
+    res = providers.OpenRouterConnector().fetch(
+        SourceConfig(id="openrouter", name="OR", connector="openrouter", tier="authoritative")
+    )
+    by_id = {a.artefact_id: a for a in res.artefacts}
+    open_one = by_id["openrouter/qwen/qwen3-8b"]
+    hosted = by_id["openrouter/vendor/secret-model"]
+    assert open_one.payload["distribution"] == "open_weights_hosted"
+    assert open_one.payload["hosted_alternative_for"] == "Qwen/Qwen3-8B"
+    assert hosted.payload["distribution"] == "hosted_only"
+    # OpenRouter publishes no licence terms, so none must be invented.
+    assert open_one.license is None
+
+
+# ------------------------------------------------------- Hugging Face sweeps
+
+
+def test_hf_artefact_records_weight_format_and_strategy():
+    from lomst.sources.hub import _to_artefact
+
+    art = _to_artefact(
+        {
+            "id": "org/model", "downloads": 10, "gated": False,
+            "pipeline_tag": "text-generation", "lastModified": "2026-01-01T00:00:00.000Z",
+            "tags": ["license:apache-2.0", "text-generation"],
+            "siblings": [{"rfilename": "model.safetensors"}, {"rfilename": "pytorch_model.bin"}],
+        },
+        "trending",
+    )
+    assert art is not None
+    assert art.license == "apache-2.0"
+    assert art.model_type == "llm"
+    assert art.payload["has_safetensors"] is True
+    assert art.payload["has_pickle_weights"] is True
+    assert art.payload["distribution"] == "open_weights"
+    assert art.payload["discovered_by"] == "trending"
+
+
+def test_hf_artefact_flags_pickle_only():
+    from lomst.sources.hub import _to_artefact
+
+    art = _to_artefact(
+        {"id": "org/legacy", "siblings": [{"rfilename": "pytorch_model.bin"}], "tags": []},
+        "top_downloads",
+    )
+    assert art.payload["has_pickle_weights"] is True
+    assert art.payload["has_safetensors"] is False

@@ -104,6 +104,15 @@ class LlmStatsConnector:
                     url=f"{base}/models",
                     modified_at=iso_date(rec.get("release_date")),
                     payload={
+                        # llm-stats mixes hosted-only and open-weight models in
+                        # one leaderboard. Section 3 scopes this framework to
+                        # locally executed models, so the distinction is recorded
+                        # rather than left for the reader to infer from a licence.
+                        "distribution": (
+                            "hosted_only"
+                            if license_raw.lower() in ("proprietary", "closed", "api_only")
+                            else "open_weights_reported"
+                        ),
                         # llm-stats reports an absolute parameter count
                         # (32500000000), not billions. Normalise here so
                         # downstream sizing logic reads in familiar units.
@@ -245,7 +254,11 @@ class OllamaConnector:
                 artefact_id=f"ollama/{n}",
                 publisher="ollama-library",
                 url=f"https://ollama.com/library/{n}",
-                payload={"pullable": True, "name": n},
+                payload={
+                    "distribution": "open_weights",
+                    "pullable": True,
+                    "name": n,
+                },
             )
             for n in names
         ]

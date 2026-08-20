@@ -582,3 +582,27 @@ def test_author_attributed_artefact_does_not_trigger_version_drift(registry, sto
         },
     )
     assert not review.version_drift(store, registry)
+
+
+def test_unregistered_families_collapse_to_one_action(registry, store):
+    """Expanding discovery must not bury the actionable items.
+
+    The full count still has to appear in the text - a silently truncated list
+    would read as "we have looked at everything".
+    """
+    run = store.start_run(["hf"])
+    for i in range(9):
+        store.upsert_artefact(
+            run,
+            {
+                "source_id": "huggingface", "artefact_id": f"pub{i}/model",
+                "family_key": f"fam{i}", "publisher": f"pub{i}", "license": "mit",
+                "model_type": "llm", "gated": False, "downloads": 500_000,
+                "version_label": None, "url": "u", "modified_at": None,
+                "payload": {"attribution_method": "name"},
+            },
+        )
+    actions = review.unregistered_families(store, registry, min_downloads=100_000)
+    assert len(actions) == 1
+    assert "9 model families" in actions[0].detail
+    assert actions[0].urgency is review.Urgency.INFORMATIONAL

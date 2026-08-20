@@ -450,7 +450,8 @@ const TABS = [
   { id: "assess",       label: "Assess a model" },
   { id: "check",        label: "Can I use it?" },
   { id: "advisories",   label: "Vulnerabilities" },
-  { id: "families",     label: "Models seen" },
+  { id: "models",       label: "All models",    count: () => S.overview && S.overview.counts && S.overview.counts.artefacts },
+  { id: "families",     label: "Families" },
   { id: "intel",        label: "Intelligence" },
   { id: "sources",      label: "Sources",       count: () => S.overview && S.overview.sources_total },
 ];
@@ -480,7 +481,7 @@ function renderTabs() {
     b.append(document.createTextNode(t.label));
     const n = t.count ? t.count() : null;
     if (n != null) b.append(el("span", "count", String(n)));
-    b.onclick = () => { S.tab = t.id; renderTabs(); renderPanel(); };
+    b.onclick = () => { location.hash = t.id; };
     nav.append(b);
   });
 }
@@ -498,6 +499,11 @@ function renderTiles() {
     { label: "Fallback gaps",   value: o.fallback_gaps,  tone: (o.fallback_gaps ? "ser" : "good"),    note: "Section 8.5 / C9", tab: "registry" },
     { label: "Approved models", value: `${o.families_usable}/${o.families}`, tone: "", note: "Usable right now", tab: "registry" },
     { label: "Sources healthy", value: `${o.sources_healthy}/${o.sources_total}`, tone: (o.sources_failing.length ? "ser" : "good"), note: "Feeds reporting", tab: "sources" },
+    { label: "Models tracked", value: fmtInt((o.counts||{}).artefacts), tone: "",
+      note: `${fmtInt((o.counts||{}).families_observed)} families seen`, tab: "models" },
+    { label: "Exploited now", value: (o.counts||{}).actively_exploited || 0,
+      tone: ((o.counts||{}).actively_exploited ? "crit" : "good"),
+      note: "CISA KEV \u00b7 Section 11.4", tab: "advisories" },
   ];
   tiles.forEach(t => {
     const b = el("button", "tile clickable");
@@ -505,9 +511,9 @@ function renderTiles() {
     b.append(el("span", `value ${t.tone}`, String(t.value)));
     b.append(el("span", "note", t.note));
     b.onclick = () => {
-      S.tab = t.tab;
       if (t.filter) S.cache.actionFilter = t.filter;
-      renderTabs(); renderPanel();
+      if (location.hash.replace(/^#/, "") === t.tab) { renderTabs(); renderPanel(); }
+      else location.hash = t.tab;
     };
     host.append(b);
   });
@@ -612,6 +618,7 @@ async function renderPanel() {
   const fn = {
     actions: panelActions, registry: panelRegistry, assess: panelAssess,
     check: panelCheck, advisories: panelAdvisories, families: panelFamilies,
+    models: panelModels,
     intel: panelIntel, sources: panelSources,
   }[S.tab];
   setPanel(spinnerPanel());
@@ -1189,6 +1196,122 @@ async function panelAdvisories() {
   setPanel(host);
 }
 
+/* ----------------------------------------------------------------- models - */
+
+const WEIGHTS = {
+  safetensors:  { cls: "good",     ic: "\u2713", label: "safetensors" },
+  pickle_only:  { cls: "critical", ic: "\u2715", label: "pickle only" },
+  gguf:         { cls: "neutral",  ic: "\u25cf", label: "GGUF" },
+  none:         { cls: "neutral",  ic: "?",       label: "unknown" },
+};
+const DISTRIBUTION = {
+  open_weights:          { cls: "good",    ic: "\u2713", label: "Open weights" },
+  open_weights_hosted:   { cls: "good",    ic: "\u2713", label: "Open + hosted" },
+  open_weights_reported: { cls: "neutral", ic: "\u25cf", label: "Open (reported)" },
+  hosted_only:           { cls: "warning", ic: "\u25b3", label: "Hosted only" },
+};
+
+async function panelModels() {
+  const st = S.cache.models || (S.cache.models = { q: "", distribution: "all", family: "all", weights: "all", source: "all", offset: 0 });
+  const host = el("div");
+
+  const q = el("input"); q.type = "text"; q.placeholder = "Search name, publisher or licence…"; q.value = st.q;
+  const dist = el("select");
+  [["all","Any distribution"],["open_weights","Open weights"],["open_weights_hosted","Open + hosted"],
+   ["open_weights_reported","Open (reported)"],["hosted_only","Hosted only (out of scope)"]]
+    .forEach(([v,l]) => { const o = el("option", null, l); o.value = v; dist.append(o); });
+  dist.value = st.distribution;
+  const wt = el("select");
+  [["all","Any weight format"],["safetensors","Has safetensors"],["pickle_only","Pickle only (7.4 risk)"],
+   ["gguf","Has GGUF"],["gated","Gated"]]
+    .forEach(([v,l]) => { const o = el("option", null, l); o.value = v; wt.append(o); });
+  wt.value = st.weights;
+  const fam = el("select");
+  const src = el("select");
+
+  const controls = el("div", "filterbar");
+  controls.append(q, dist, wt, fam, src);
+  const body = el("div");
+  host.append(controls, body);
+
+  const cols = [
+    { key: "artefact_id", label: "Model", wrap: true, render: r => {
+        const d = el("div");
+        if (r.url) { const a = el("a", null, r.artefact_id); a.href = r.url; a.target = "_blank"; a.rel = "noopener"; d.append(a); }
+        else d.append(el("strong", null, r.artefact_id));
+        const meta = el("div");
+        if (r.family) meta.append(el("span", "chip", r.family));
+        else meta.append(el("span", "chip", "unclassified"));
+        if (r.model_type) meta.append(el("span", "chip", r.model_type));
+        if (r.discovered_by) meta.append(el("span", "chip", "via " + r.discovered_by.replace(/_/g," ")));
+        d.append(meta);
+        return d;
+      } },
+    { key: "publisher", label: "Publisher" },
+    { key: "license", label: "Licence", render: r => r.license || "not stated" },
+    { key: "distribution", label: "Distribution", render: r => badge(DISTRIBUTION, r.distribution) },
+    { key: false, label: "Weights", render: r => {
+        const d = el("div");
+        if (r.has_safetensors) d.append(badge(WEIGHTS, "safetensors"));
+        else if (r.has_pickle_weights) d.append(badge(WEIGHTS, "pickle_only"));
+        if (r.has_gguf) d.append(badge(WEIGHTS, "gguf"));
+        if (r.gated) d.append(badge(URGENCY, "scheduled", "Gated"));
+        return d.childNodes.length ? d : badge(WEIGHTS, "none");
+      } },
+    { key: "downloads", label: "Downloads", num: true, render: r => fmtInt(r.downloads) },
+    { key: "modified_at", label: "Updated", mono: true, render: r => fmtDate(r.modified_at) },
+  ];
+
+  let debounce = null;
+  async function run(resetOffset) {
+    if (resetOffset) st.offset = 0;
+    st.q = q.value; st.distribution = dist.value; st.weights = wt.value;
+    st.family = fam.value || "all"; st.source = src.value || "all";
+    body.textContent = ""; body.append(spinnerPanel("Loading models…"));
+    const params = new URLSearchParams({
+      q: st.q, distribution: st.distribution, weights: st.weights,
+      family: st.family, source: st.source, limit: "100", offset: String(st.offset),
+    });
+    const d = await api("/api/artefacts?" + params.toString());
+
+    // populate facet dropdowns once
+    if (!fam.options.length) {
+      [["all","All families"],["unclassified","Unclassified only"]]
+        .concat((d.facets.families || []).map(f => [f, f]))
+        .forEach(([v,l]) => { const o = el("option", null, l); o.value = v; fam.append(o); });
+      fam.value = st.family;
+    }
+    if (!src.options.length) {
+      [["all","All sources"]].concat((d.facets.sources || []).map(x => [x, x]))
+        .forEach(([v,l]) => { const o = el("option", null, l); o.value = v; src.append(o); });
+      src.value = st.source;
+    }
+
+    const from = d.total ? d.offset + 1 : 0;
+    const to = Math.min(d.offset + d.limit, d.total);
+    const pager = el("div", "filterbar");
+    const prev = el("button", "sm", "\u2190 Previous");
+    const next = el("button", "sm", "Next \u2192");
+    prev.disabled = d.offset <= 0;
+    next.disabled = to >= d.total;
+    prev.onclick = () => { st.offset = Math.max(0, st.offset - d.limit); run(false); };
+    next.onclick = () => { st.offset = st.offset + d.limit; run(false); };
+    pager.append(el("span", "lede", `Showing ${fmtInt(from)}–${fmtInt(to)} of ${fmtInt(d.total)}`), prev, next);
+
+    body.textContent = "";
+    body.append(card(`Model inventory — ${fmtInt(d.total)} artefacts match`,
+      buildTable(cols, d.artefacts, { sortKey: "downloads", sortDir: -1,
+        emptyText: "No models match. Widen the filters, or press Refresh data." }), null, true));
+    body.append(pager);
+  }
+
+  q.oninput = () => { clearTimeout(debounce); debounce = setTimeout(() => run(true), 300); };
+  dist.onchange = wt.onchange = fam.onchange = src.onchange = () => run(true);
+
+  setPanel(host);
+  await run(false);
+}
+
 /* --------------------------------------------------------------- families - */
 
 async function panelFamilies() {
@@ -1214,7 +1337,7 @@ async function panelFamilies() {
       render: r => chips(r.licenses) },
     { key: false, label: "", render: r => {
         const b = el("button", "sm", "Assess");
-        b.onclick = () => { S.cache.assessFamily = r.family_key; S.tab = "assess"; renderTabs(); renderPanel(); };
+        b.onclick = () => { S.cache.assessFamily = r.family_key; location.hash = "assess"; };
         return b;
       } },
   ];
@@ -1227,7 +1350,7 @@ async function panelFamilies() {
       (!q || `${f.family_key} ${(f.publishers||[]).join(" ")}`.toLowerCase().includes(q))
     );
     body.textContent = "";
-    body.append(card(`Model families observed across sources — ${rows.length}`,
+    body.append(card(`Family rollup — ${rows.length} families (see All models for individual repos)`,
       buildTable(cols, rows, { sortKey: "downloads", sortDir: -1,
         emptyText: "Nothing observed yet — press Refresh data." }), null, true));
   }
@@ -1330,7 +1453,17 @@ async function panelSources() {
 
 /* =================================================================== boot = */
 
+function tabFromHash() {
+  const want = (location.hash || "").replace(/^#/, "");
+  return TABS.some(t => t.id === want) ? want : null;
+}
+window.addEventListener("hashchange", () => {
+  const t = tabFromHash();
+  if (t && t !== S.tab) { S.tab = t; renderTabs(); renderPanel(); }
+});
+
 (async function boot() {
+  S.tab = tabFromHash() || S.tab;
   try { S.vocab = await api("/api/vocabulary"); }
   catch (e) {
     $("#banners").append(banner("bad", "Cannot reach the tracker", e.message));

@@ -420,22 +420,30 @@ def unregistered_families(store: Store, registry: Registry, min_downloads: int =
            ORDER BY dl DESC""",
         (min_downloads,),
     )
-    out: list[Action] = []
-    for r in rows:
-        if r["family_key"] in known:
-            continue
-        out.append(
-            Action(
-                Urgency.INFORMATIONAL,
-                "13.1 / 15.3",
-                r["family_key"],
-                "unregistered_family",
-                f"{r['n']} artefacts observed ({r['dl']:,} downloads) from "
-                f"{r['publishers']}, with no registry entry. Section 15.3 asks that emerging "
-                f"families be evaluated proactively.",
-            )
+    unknown = [r for r in rows if r["family_key"] not in known]
+    if not unknown:
+        return []
+
+    # One action, not one per family. Expanding the Hugging Face sweep took this
+    # from a handful to fifty-plus rows, which buried the dozen items that
+    # actually need a decision. The count is stated in full rather than
+    # truncated - a silently capped list would read as "we have looked at
+    # everything" when we have not.
+    top = ", ".join(
+        f"{r['family_key']} ({r['dl']:,} downloads)" for r in unknown[:5]
+    )
+    return [
+        Action(
+            Urgency.INFORMATIONAL,
+            "13.1 / 15.3",
+            f"{len(unknown)} unevaluated families",
+            "unregistered_families",
+            f"{len(unknown)} model families are in circulation with no registry entry, "
+            f"above the {min_downloads:,}-download threshold. Largest: {top}. "
+            f"Section 15.3 asks that emerging families be evaluated proactively; browse "
+            f"them under Families or All models and register the ones people are using.",
         )
-    return _sort(out)
+    ]
 
 
 def all_actions(store: Store, registry: Registry, *, horizon_days: int = 30) -> list[Action]:

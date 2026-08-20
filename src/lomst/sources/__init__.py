@@ -5,7 +5,13 @@ from __future__ import annotations
 from .base import Advisory, Artefact, Connector, Observation, Result
 from .feeds import RssConnector, WordPressConnector
 from .hub import HuggingFaceConnector
-from .security import GhsaConnector, GithubAwesomeConnector, OsvConnector
+from .providers import OpenRouterConnector
+from .security import (
+    GhsaConnector,
+    GithubAwesomeConnector,
+    KevConnector,
+    OsvConnector,
+)
 from .trackers import EvertuneConnector, LlmStatsConnector, OllamaConnector
 
 CONNECTORS: dict[str, type] = {
@@ -18,6 +24,8 @@ CONNECTORS: dict[str, type] = {
     "osv": OsvConnector,
     "ghsa": GhsaConnector,
     "github_awesome": GithubAwesomeConnector,
+    "kev": KevConnector,
+    "openrouter": OpenRouterConnector,
 }
 
 
