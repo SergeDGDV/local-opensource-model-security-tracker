@@ -132,15 +132,20 @@ class UsageGate:
                 reasons=[
                     Reason(
                         "9",
-                        "registry entry exists",
+                        "a decision exists for this model",
                         False,
-                        f"{family_key!r} is not in the model registry. The registry is the "
-                        f"authoritative record of what may be used (Section 9); submit a "
-                        f"request per Section 13 step 1.",
+                        f"Nobody has evaluated {family_key} yet, so no decision permits its "
+                        f"use. This is not a judgement about the model - it simply has not "
+                        f"been through the process. The registry is the record of what may "
+                        f"be used (Section 9).",
                     )
                 ],
                 required_actions=[
-                    f"Submit an Appendix D model approval request for {family_key!r}."
+                    f"Ask for it to be evaluated: fill in the \u201cRequest a new model\u201d "
+                    f"questionnaire (Appendix D), or add {family_key} to the registry from the "
+                    f"All models tab and have AI Governance record a decision.",
+                    "Meanwhile, check whether an already-approved model does the same job - "
+                    "that is the first thing AI Governance will ask (Section 13 step 2).",
                 ],
             )
 

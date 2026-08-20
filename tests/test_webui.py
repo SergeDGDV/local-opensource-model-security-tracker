@@ -96,3 +96,19 @@ def test_survey_and_guide_panels_are_wired():
         assert f"function {fn}" in js or f"async function {fn}" in js, fn
     # both tabs reachable
     assert 'id: "guide"' in js and 'id: "questions"' in js
+
+
+def test_family_selector_spans_registry_and_observed():
+    """The dropdown showed only registry entries - 4 of 61 observed families.
+
+    §6.1 governs at family level, so ~9000 artefacts roll up to ~61 families, but
+    you must still be able to ask about an unevaluated one and get the honest
+    "nobody has assessed it" answer.
+    """
+    js = _script()
+    assert "async function familySelect(" in js
+    assert "/api/families" in js, "the selector must read observed families too"
+    assert "Seen but not evaluated" in js, "unevaluated families need their own group"
+    assert "__other__" in js, "free text is needed for anything not yet observed"
+    # and no panel should build its own registry-only family dropdown any more
+    assert js.count('q.type === "family"') >= 1

@@ -606,3 +606,15 @@ def test_unregistered_families_collapse_to_one_action(registry, store):
     assert len(actions) == 1
     assert "9 model families" in actions[0].detail
     assert actions[0].urgency is review.Urgency.INFORMATIONAL
+
+
+def test_unevaluated_family_answer_is_actionable(registry):
+    """A "no" must say what to do next, not just cite a section."""
+    d = UsageGate(registry).check("sentence_transformers", UsageCategory.INTERNAL_PRODUCTIVITY)
+    assert d.verdict is Verdict.BLOCKED
+    blocker = d.blockers[0]
+    # Reads as a process gap, not a verdict on the model's quality.
+    assert "not been through the process" in blocker.detail
+    assert "sentence_transformers" in blocker.detail
+    assert "'" not in blocker.detail[:40], "raw repr quoting leaked into prose"
+    assert d.required_actions and any("Request a new model" in a for a in d.required_actions)

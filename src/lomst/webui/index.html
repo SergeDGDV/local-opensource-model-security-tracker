@@ -481,6 +481,76 @@ function buildTable(cols, rows, opts) {
   return wrap;
 }
 
+/* Family selector.
+
+   Two groups, because they answer differently. Registry entries have a decision
+   and may permit use; observed families have none, so the answer is always "not
+   evaluated" - which is still worth being able to ask, and was previously
+   impossible because this list was built from the registry alone. Free text is
+   accepted so you can ask about something the tracker has not seen at all. */
+async function familySelect(selected, onChange) {
+  const reg = S.cache.registry || (S.cache.registry = await api("/api/registry"));
+  const obs = S.cache.families || (S.cache.families = await api("/api/families"));
+
+  const wrap = el("div");
+  const sel = el("select");
+  const blank = el("option", null, "Choose a model family\u2026");
+  blank.value = ""; sel.append(blank);
+
+  const decided = (reg.entries || []).filter(e => e.kind === "model_family");
+  const decidedKeys = new Set(decided.map(e => e.key));
+  if (decided.length) {
+    const g = el("optgroup");
+    g.label = `Decided \u2014 ${decided.length} (a decision exists)`;
+    decided.forEach(e => {
+      const o = el("option", null, `${e.name} \u2014 ${titleCase(e.approval_status)}`);
+      o.value = e.key; g.append(o);
+    });
+    sel.append(g);
+  }
+
+  const unevaluated = (obs.families || [])
+    .filter(f => !decidedKeys.has(f.family_key))
+    .sort((a, b) => (b.downloads || 0) - (a.downloads || 0));
+  if (unevaluated.length) {
+    const g = el("optgroup");
+    g.label = `Seen but not evaluated \u2014 ${unevaluated.length} (the answer will be no)`;
+    unevaluated.forEach(f => {
+      const o = el("option", null,
+        `${f.family_key} \u2014 ${fmtInt(f.downloads)} downloads`);
+      o.value = f.family_key; g.append(o);
+    });
+    sel.append(g);
+  }
+
+  const other = el("option", null, "Something else \u2014 type a name\u2026");
+  other.value = "__other__";
+  sel.append(other);
+
+  const free = el("input", "hide");
+  free.type = "text";
+  free.placeholder = "e.g. unsloth/Qwen3-8B-GGUF, or a family name";
+
+  if (selected && !decidedKeys.has(selected) &&
+      !unevaluated.some(f => f.family_key === selected)) {
+    sel.value = "__other__"; free.classList.remove("hide"); free.value = selected;
+  } else {
+    sel.value = selected || "";
+  }
+
+  sel.onchange = () => {
+    const isOther = sel.value === "__other__";
+    free.classList.toggle("hide", !isOther);
+    onChange(isOther ? free.value.trim() : sel.value);
+  };
+  free.oninput = () => onChange(free.value.trim());
+
+  wrap.append(sel, free);
+  wrap.style.display = "grid";
+  wrap.style.gap = "6px";
+  return wrap;
+}
+
 function card(title, bodyNode, headExtras, flush) {
   const c = el("div", "card");
   const h = el("div", "head");
@@ -1130,11 +1200,10 @@ async function panelCheck() {
     f.append(l, node); grid.append(f); return node;
   };
 
-  const fam = el("select");
-  (reg.entries || []).filter(e => e.kind === "model_family")
-    .forEach(e => { const o = el("option", null, e.name); o.value = e.key; fam.append(o); });
-  if (!fam.options.length) { const o = el("option", null, "(no families in the registry)"); o.value = ""; fam.append(o); }
-  mk("Model family", fam);
+  let familyKey = S.cache.checkFamily || "";
+  const famNode = await familySelect(familyKey, v => { familyKey = v; S.cache.checkFamily = v; });
+  mk("Model family", famNode,
+     "Anything not yet decided will come back as a no - that is the honest answer, not a bug.");
 
   const cat = el("select");
   (S.vocab.usage_categories || []).forEach(u => { const o = el("option", null, u.label); o.value = u.value; cat.append(o); });
@@ -1169,7 +1238,7 @@ async function panelCheck() {
     out.append(spinnerPanel("Checking…"));
     try {
       const d = await post("/api/check", {
-        family: fam.value,
+        family: familyKey,
         usage_category: cat.value,
         runtime: rt.value || null,
         solution_name: sol.value || null,
@@ -1794,12 +1863,17 @@ function questionNode(q, answers, reg) {
     const i = el("textarea"); i.value = answers[q.id] || "";
     i.oninput = () => set(i.value);
     d.append(i);
-  } else if (q.type === "family" || q.type === "runtime") {
+  } else if (q.type === "family") {
+    // Built asynchronously; a placeholder holds the slot so question order is kept.
+    const slot = el("div");
+    d.append(slot);
+    familySelect(answers[q.id] || "", v => set(v)).then(node => slot.append(node));
+  } else if (q.type === "runtime") {
     const sel = el("select");
-    const blank = el("option", null, q.type === "family" ? "Choose a model\u2026" : "Not sure / none");
+    const blank = el("option", null, "Not sure / none");
     blank.value = ""; sel.append(blank);
     (reg.entries || [])
-      .filter(e => e.kind === (q.type === "family" ? "model_family" : "runtime"))
+      .filter(e => e.kind === "runtime")
       .forEach(e => {
         const o = el("option", null, `${e.name} \u2014 ${titleCase(e.approval_status)}`);
         o.value = e.key; sel.append(o);
@@ -1807,9 +1881,6 @@ function questionNode(q, answers, reg) {
     sel.value = answers[q.id] || "";
     sel.onchange = () => set(sel.value);
     d.append(sel);
-    if (q.type === "family" && !(reg.entries || []).some(e => e.kind === "model_family")) {
-      d.append(el("div", "qhelp", "Nothing is in the registry yet, so every answer will be no."));
-    }
   } else if (q.type === "yesno") {
     const wrap = el("div", "yn");
     ["yes", "no"].forEach(v => {
