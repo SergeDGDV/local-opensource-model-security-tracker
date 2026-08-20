@@ -24,9 +24,10 @@ from starlette.routing import Route
 
 from . import config, db, digest as digest_mod, ingest as ingest_mod
 from .governance import review
-from .governance.classify import Classifier
-from .governance.registry import Registry, RegistryError
+from .governance.classify import Classifier, OFFICIAL_PUBLISHERS, publisher_matches
+from .governance.registry import Entry, Registry, RegistryError
 from .governance.usage import UsageGate
+from .extract import FAMILY_NAMES
 from .governance.vocab import (
     CONDITION_REQUIREMENTS,
     USAGE_RANK,
@@ -35,6 +36,7 @@ from .governance.vocab import (
     ConditionCode,
     InformationClass,
     LifecycleStatus,
+    ModelType,
     UsageCategory,
 )
 
@@ -695,6 +697,134 @@ async def api_ingest_status(request: Request):
     return JSONResponse(JOB.snapshot())
 
 
+async def api_scaffold(request: Request):
+    """Create a `pending_evaluation` registry entry for an observed family.
+
+    This is the missing step between "we can see 61 families in circulation" and
+    "we have decided about 3 of them". It drafts the Appendix B entry from
+    evidence already ingested - publisher, licence, model type, distribution
+    source, and which approved runtimes can actually run it - so a human fills in
+    a judgement rather than retyping facts.
+
+    It deliberately does NOT approve anything. The entry lands as
+    `pending_evaluation`, which `UsageGate` treats as "no use permitted", and it
+    stays that way until an approving authority records a Section 6.3 outcome.
+    """
+    if _readonly():
+        return _err("This dashboard is running in read-only mode.", 403)
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return _err("invalid JSON body")
+
+    key = (body.get("family") or "").strip().lower()
+    if not key:
+        return _err("family is required")
+
+    cfg, store, registry = _ctx()
+    try:
+        kind = ComponentKind(body.get("kind") or "model_family")
+        if registry.get(key, kind) is not None:
+            return _err(f"{key!r} is already in the registry", 409)
+
+        # --- draft from observed evidence --------------------------------------
+        rows = store.query(
+            """SELECT publisher, license, model_type, url, source_id,
+                      COALESCE(downloads,0) AS downloads
+               FROM artefacts WHERE family_key = ?
+               ORDER BY downloads DESC""",
+            (key,),
+        )
+        if not rows:
+            return _err(
+                f"no artefacts observed for {key!r}, so there is nothing to draft from. "
+                f"Run a refresh first, or add the YAML file by hand."
+            )
+
+        official = OFFICIAL_PUBLISHERS.get(key, ())
+        developer = next(
+            (r["publisher"] for r in rows if publisher_matches(r["publisher"], official)),
+            rows[0]["publisher"] or "",
+        )
+        # Licence: weight by downloads among artefacts from the publisher of
+        # record, not "first row wins". Families span generations - Gemma 3 ships
+        # under the Gemma licence while Gemma 4 moved to Apache-2.0 - so the
+        # spread is recorded alongside the pick rather than collapsed silently
+        # (Sections 6.2, 7.3).
+        licence_weight: dict[str, int] = {}
+        for r in rows:
+            if not r["license"] or not publisher_matches(r["publisher"], official):
+                continue
+            licence_weight[r["license"]] = licence_weight.get(r["license"], 0) + (
+                r["downloads"] or 0
+            )
+        if not licence_weight:
+            for r in rows:
+                if r["license"]:
+                    licence_weight[r["license"]] = licence_weight.get(r["license"], 0) + (
+                        r["downloads"] or 0
+                    )
+        ranked = sorted(licence_weight.items(), key=lambda kv: -kv[1])
+        license_value = ranked[0][0] if ranked else ""
+        licence_note = ""
+        if len(ranked) > 1:
+            others = ", ".join(f"{name} ({dl:,} downloads)" for name, dl in ranked[1:4])
+            licence_note = (
+                f" This family also publishes under {others}. Each release is licensed on "
+                f"its own terms, so confirm which generation is being approved (Section 6.2)."
+            )
+        model_type = next((r["model_type"] for r in rows if r["model_type"]), "llm")
+        hf = next((r for r in rows if r["source_id"] == "huggingface"), None)
+        distribution_source = (
+            f"https://huggingface.co/{developer}" if hf and developer else (rows[0]["url"] or "")
+        )
+        # Only runtimes that are themselves approved and can demonstrably run it.
+        pullable = any(r["source_id"] == "ollama_library" for r in rows)
+        runtimes = [
+            rt.key
+            for rt in registry.runtimes().values()
+            if rt.usable and (rt.key != "ollama" or pullable)
+        ]
+
+        entry = Entry(
+            key=key,
+            name=FAMILY_NAMES.get(key, key.replace("_", " ").title()),
+            kind=kind,
+            model_type=ModelType(model_type) if model_type in {m.value for m in ModelType} else ModelType.LLM,
+            developer=developer,
+            approval_status=ApprovalOutcome.PENDING_EVALUATION,
+            license=license_value or "",
+            distribution_source=distribution_source,
+            runtime_compatibility=runtimes,
+            governance_owner="AI Governance",
+            notes=(
+                f"Drafted from {len(rows)} observed artefacts. Fields are evidence, not "
+                f"judgements: no use is permitted while status is pending_evaluation. "
+                f"Complete the Appendix A checklist, then record a Section 6.3 outcome."
+                + licence_note
+            ),
+        )
+        path = registry.save(entry)
+        return JSONResponse(
+            {
+                "created": True,
+                "key": entry.key,
+                "name": entry.name,
+                "file": str(path),
+                "drafted_from": len(rows),
+                "approval_status": entry.approval_status.value,
+                "next_step": (
+                    "Status is pending_evaluation, so nothing is permitted yet. Open Details "
+                    "and record a decision with an approving authority and a rationale."
+                ),
+            }
+        )
+    except (ValueError, RegistryError) as exc:
+        return _err(str(exc))
+    finally:
+        store.close()
+
+
 async def api_decide(request: Request):
     if _readonly():
         return _err("This dashboard is running in read-only mode.", 403)
@@ -780,6 +910,7 @@ routes = [
     Route("/api/vocabulary", api_vocab),
     Route("/api/ingest", api_ingest_start, methods=["POST"]),
     Route("/api/ingest/status", api_ingest_status),
+    Route("/api/scaffold", api_scaffold, methods=["POST"]),
     Route("/api/decide", api_decide, methods=["POST"]),
 ]
 

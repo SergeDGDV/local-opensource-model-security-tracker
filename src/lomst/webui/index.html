@@ -728,9 +728,51 @@ async function panelRegistry() {
       } },
   ];
 
+  const o = S.overview;
+  const observed = (o.counts || {}).families_observed || 0;
+  const explain = el("div");
+  explain.append(el("p", null,
+    "This is the record of governance decisions, not an inventory. An entry appears " +
+    "here only when a named authority has evaluated something and recorded a " +
+    "Section 6.3 outcome \u2014 which is why it is much smaller than the model list."));
+  const dl = el("dl", "kv");
+  dl.append(el("dt", null, "Decided"));
+  dl.append(el("dd", null, `${o.families} model families + ${o.runtimes} runtimes`));
+  dl.append(el("dt", null, "Observed in circulation"));
+  dl.append(el("dd", null, `${observed} families across ${fmtInt((o.counts||{}).artefacts)} artefacts`));
+  dl.append(el("dt", null, "How this grows"));
+  const how = el("dd");
+  how.append(document.createTextNode("Find a family under "));
+  const lnk = el("a", null, "All models"); lnk.href = "#models";
+  how.append(lnk);
+  how.append(document.createTextNode(" or Families and press “Add to registry”. " +
+    "That drafts an entry from observed evidence as pending_evaluation — which permits " +
+    "no use at all — then you record the decision here."));
+  dl.append(how);
+  explain.append(dl);
+  host.append(card("What the registry is", explain));
+
+  const wantOpen = S.cache.openDetail;
+  S.cache.openDetail = null;
   host.append(card(`Model registry — the authoritative record (Section 9)`,
-    buildTable(cols, data.entries, { sortKey: "name",
-      emptyText: "No registry entries yet." }), null, true));
+    buildTable(cols, data.entries, {
+      sortKey: "name",
+      emptyText: "No registry entries yet.",
+      onRow: (tr, row, tbody) => {
+        if (wantOpen && row.key === wantOpen) {
+          // Freshly drafted: open it so the decision form is right there.
+          setTimeout(() => {
+            tbody.querySelectorAll("tr").forEach(r => {
+              if (r === tr) {
+                const b = r.querySelector("button");
+                if (b) b.click();
+              }
+            });
+            tr.scrollIntoView({ behavior: "smooth", block: "center" });
+          }, 60);
+        }
+      },
+    }), null, true));
   setPanel(host);
 }
 
@@ -1196,6 +1238,35 @@ async function panelAdvisories() {
   setPanel(host);
 }
 
+/* -------------------------------------------------- register an observed family */
+
+async function registerFamily(key, btn) {
+  if (S.overview.readonly) return;
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = "Adding…";
+  try {
+    const res = await post("/api/scaffold", { family: key });
+    S.cache = {};
+    await loadOverview();
+    S.cache.openDetail = res.key;
+    location.hash = "registry";
+    if (location.hash.replace(/^#/, "") === "registry") { renderTabs(); renderPanel(); }
+  } catch (e) {
+    btn.disabled = false; btn.textContent = original;
+    $("#banners").prepend(banner("bad", `Could not add ${key}`, e.message));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+}
+
+function registerButton(familyKey, inRegistry) {
+  if (inRegistry) return badge(VERDICT, "pass", "Governed");
+  if (S.overview.readonly) return badge(URGENCY, "informational", "Not evaluated");
+  const b = el("button", "sm", "Add to registry");
+  b.title = "Draft a pending_evaluation entry from observed evidence (Section 13 step 1)";
+  b.onclick = () => registerFamily(familyKey, b);
+  return b;
+}
+
 /* ----------------------------------------------------------------- models - */
 
 const WEIGHTS = {
@@ -1213,6 +1284,9 @@ const DISTRIBUTION = {
 
 async function panelModels() {
   const st = S.cache.models || (S.cache.models = { q: "", distribution: "all", family: "all", weights: "all", source: "all", offset: 0 });
+  const reg = S.cache.registry || (S.cache.registry = await api("/api/registry"));
+  S.cache.registeredKeys = new Set(
+    (reg.entries || []).filter(e => e.kind === "model_family").map(e => e.key));
   const host = el("div");
 
   const q = el("input"); q.type = "text"; q.placeholder = "Search name, publisher or licence…"; q.value = st.q;
@@ -1260,6 +1334,16 @@ async function panelModels() {
       } },
     { key: "downloads", label: "Downloads", num: true, render: r => fmtInt(r.downloads) },
     { key: "modified_at", label: "Updated", mono: true, render: r => fmtDate(r.modified_at) },
+    { key: false, label: "", render: r => {
+        if (!r.family) {
+          const sp = el("span", "chip");
+          sp.textContent = "no family";
+          sp.title = "Section 6.1 governs at family level. Add a pattern in extract.py " +
+                     "if this should be governable.";
+          return sp;
+        }
+        return registerButton(r.family, S.cache.registeredKeys.has(r.family));
+      } },
   ];
 
   let debounce = null;
@@ -1327,8 +1411,7 @@ async function panelFamilies() {
   const cols = [
     { key: "family_key", label: "Family", render: r => el("strong", null, r.family_key) },
     { key: "in_registry", label: "Governed?",
-      render: r => badge(r.in_registry ? VERDICT : URGENCY, r.in_registry ? "pass" : "informational",
-                         r.in_registry ? "In registry" : "Not evaluated") },
+      render: r => registerButton(r.family_key, r.in_registry) },
     { key: "artefacts", label: "Artefacts", num: true, render: r => fmtInt(r.artefacts) },
     { key: "downloads", label: "Downloads", num: true, render: r => fmtInt(r.downloads) },
     { key: "publishers", label: "Publishers", sortKey: r => (r.publishers||[]).join(),

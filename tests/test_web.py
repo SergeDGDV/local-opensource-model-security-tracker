@@ -169,3 +169,77 @@ def test_ingest_status_shape(client):
     d = client.get("/api/ingest/status").json()
     assert d["running"] is False
     assert "sources" in d and isinstance(d["sources"], list)
+
+
+def test_scaffold_drafts_from_evidence_but_approves_nothing(tmp_path, monkeypatch):
+    """The missing step between "61 families observed" and "3 decided".
+
+    Drafting must never be an approval: the entry lands as pending_evaluation,
+    which the usage gate treats as no permission at all.
+    """
+    (tmp_path / "config").mkdir()
+    fam = tmp_path / "registry" / "families"
+    fam.mkdir(parents=True)
+    (tmp_path / "registry" / "runtimes").mkdir(parents=True)
+    (tmp_path / "config" / "sources.yaml").write_text("sources: []\n")
+    monkeypatch.setenv("LOMST_HOME", str(tmp_path))
+    monkeypatch.delenv("LOMST_WEB_READONLY", raising=False)
+
+    from lomst import config as cfgmod, db as dbmod, web
+
+    importlib.reload(web)
+    cfg = cfgmod.load(tmp_path)
+    store = dbmod.Store(cfg.paths.db)
+    run = store.start_run(["hf"])
+    # Two generations under different licences, the newer one more downloaded.
+    for repo, lic, dl in [
+        ("google/gemma-4-31b-it", "apache-2.0", 9_000_000),
+        ("google/gemma-3-1b-it", "gemma", 5_000_000),
+    ]:
+        store.upsert_artefact(
+            run,
+            {
+                "source_id": "huggingface", "artefact_id": repo, "family_key": "gemma",
+                "publisher": "google", "license": lic, "model_type": "llm",
+                "gated": False, "downloads": dl, "version_label": None,
+                "url": f"https://huggingface.co/{repo}",
+                "modified_at": "2026-01-01T00:00:00+00:00",
+                "payload": {"attribution_method": "name"},
+            },
+        )
+    store.close()
+
+    with TestClient(web.app) as c:
+        r = c.post("/api/scaffold", json={"family": "gemma"})
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["approval_status"] == "pending_evaluation"
+        assert d["drafted_from"] == 2
+
+        # Drafting grants nothing.
+        gate = c.post(
+            "/api/check",
+            json={"family": "gemma", "usage_category": "internal_productivity"},
+        ).json()
+        assert gate["verdict"] == "blocked"
+
+        # A second attempt is a conflict, not a silent overwrite of a decision.
+        assert c.post("/api/scaffold", json={"family": "gemma"}).status_code == 409
+
+    text = (fam / "gemma.yaml").read_text()
+    # Download-weighted pick, with the other generation's terms recorded.
+    assert "license: apache-2.0" in text
+    assert "gemma (5,000,000 downloads)" in text
+
+
+def test_scaffold_refuses_without_evidence(client, monkeypatch):
+    monkeypatch.delenv("LOMST_WEB_READONLY", raising=False)
+    import importlib as il
+
+    from lomst import web
+
+    il.reload(web)
+    with TestClient(web.app) as c:
+        r = c.post("/api/scaffold", json={"family": "nothing_observed"})
+        assert r.status_code == 400
+        assert "nothing to draft" in r.json()["error"]

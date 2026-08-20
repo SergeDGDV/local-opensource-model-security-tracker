@@ -1,0 +1,21 @@
+# Gemma - registry entry (Appendix B)
+# Governance of Local and Open-Source AI Models v1.1
+# Edit deliberately: git history is the Section 9.1 audit record.
+key: gemma
+name: Gemma
+kind: model_family
+model_type: multimodal
+developer: google
+approval_status: pending_evaluation
+lifecycle_status: active
+license: apache-2.0
+distribution_source: https://huggingface.co/google
+runtime_compatibility:
+- ollama
+- vllm
+governance_owner: AI Governance
+notes: 'Drafted from 436 observed artefacts. Fields are evidence, not judgements: no use is permitted
+  while status is pending_evaluation. Complete the Appendix A checklist, then record a Section 6.3 outcome.
+  This family also publishes under gemma (16,695,884 downloads), other (1,545,558 downloads), cc-by-4.0
+  (6,560 downloads). Each release is licensed on its own terms, so confirm which generation is being approved
+  (Section 6.2).'
