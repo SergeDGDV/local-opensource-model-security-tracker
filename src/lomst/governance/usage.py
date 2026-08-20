@@ -27,6 +27,8 @@ from typing import Any
 from .registry import DependentSolution, Entry, Registry
 from .vocab import (
     CONDITION_REQUIREMENTS,
+    humanise,
+    humanise_all,
     FALLBACK_REQUIRED_RANK,
     RESTRICTED_USE_CATEGORIES,
     SENSITIVE_INFORMATION_CLASSES,
@@ -147,7 +149,7 @@ class UsageGate:
                 "6.3",
                 "approval status permits use",
                 entry.approval_status.usable,
-                f"Approval status is {entry.approval_status.value}.",
+                f"Approval status is \u201c{humanise(entry.approval_status)}\u201d.",
             )
         )
 
@@ -156,7 +158,7 @@ class UsageGate:
                 "9.3 / E.5",
                 "lifecycle status permits new development",
                 entry.lifecycle_status.allows_new_development,
-                f"Lifecycle status is {entry.lifecycle_status.value}."
+                f"Lifecycle status is \u201c{humanise(entry.lifecycle_status)}\u201d."
                 + (
                     " Retired models are not used for new solutions absent a documented "
                     "exception."
@@ -181,10 +183,10 @@ class UsageGate:
                 "usage category is within the approved scope",
                 granted,
                 (
-                    f"{usage_category.value} is an approved use."
+                    f"{humanise(usage_category).capitalize()} is an approved use."
                     if granted
-                    else f"{usage_category.value} is not among the approved uses "
-                    f"({', '.join(u.value for u in entry.approved_uses) or 'none recorded'})."
+                    else f"This model is not approved for {humanise(usage_category)}. "
+                    f"It is approved for: {humanise_all(entry.approved_uses)}."
                 ),
             )
         )
@@ -238,8 +240,8 @@ class UsageGate:
                     "8.3 / 11.2",
                     "approved for the information classes involved",
                     approved_for_sensitive,
-                    f"Processing {', '.join(c.value for c in sensitive)} requires approval for "
-                    f"Sensitive Information Processing. "
+                    f"Processing {humanise_all(sensitive)} requires approval for handling "
+                    f"sensitive information. "
                     + (
                         "That approval is present."
                         if approved_for_sensitive
@@ -270,14 +272,15 @@ class UsageGate:
         if usage_category in RESTRICTED_USE_CATEGORIES:
             conditions.extend([ConditionCode.C3, ConditionCode.C8])
             actions.append(
-                f"{usage_category.value} is a restricted use under Section 8.2: additional "
-                f"security, legal or architectural review applies regardless of model choice."
+                f"{humanise(usage_category).capitalize()} is a higher-risk use: additional "
+                f"security, legal or architectural review applies whichever model you pick "
+                f"(Section 8.2)."
             )
         if usage_category is UsageCategory.AUTONOMOUS_DECISION_SUPPORT:
             conditions.append(ConditionCode.C5)
             actions.append(
-                "Autonomous decision support: human review before production use (C5) and "
-                "enhanced monitoring (C7) are expected."
+                "Because it can act on its own, a person must review output before "
+                "production use and usage must be monitored more closely (Section 8.2)."
             )
             conditions.append(ConditionCode.C7)
 
@@ -369,9 +372,8 @@ class UsageGate:
                     "10",
                     "runtime approval permits use",
                     rt_entry.usable,
-                    f"Runtime {rt_entry.name} approval status is "
-                    f"{rt_entry.approval_status.value}, lifecycle "
-                    f"{rt_entry.lifecycle_status.value}.",
+                    f"Runtime {rt_entry.name} is \u201c{humanise(rt_entry.approval_status)}\u201d "
+                    f"and \u201c{humanise(rt_entry.lifecycle_status)}\u201d.",
                 )
             )
             if rt_entry.review_overdue:

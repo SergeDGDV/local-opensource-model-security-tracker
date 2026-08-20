@@ -73,3 +73,26 @@ def test_dark_mode_is_declared_under_both_scopes():
     assert "@media (prefers-color-scheme: dark)" in html
     assert ':root[data-theme="dark"]' in html
     assert ':root:where(:not([data-theme="light"]))' in html
+
+
+def test_badge_honours_an_explicit_label():
+    """Regression: `badge(VERDICT, "pass", "Gives a yes/no")` rendered as "Pass".
+
+    Twelve call sites pass a contextual label ("Overdue", "Gated", "3 gaps").
+    An earlier version only used it when the key was absent from the map, so all
+    of them silently showed the generic word instead.
+    """
+    js = _script()
+    fn = re.search(r"function badge\(map, key, label\) \{(.*?)\n\}", js, re.S)
+    assert fn, "badge() signature changed - check the label-override behaviour"
+    body = fn.group(1)
+    assert "label ||" in body, "an explicit label must win over the map's wording"
+
+
+def test_survey_and_guide_panels_are_wired():
+    js = _script()
+    for fn in ("panelGuide", "panelQuestions", "renderWizard", "questionNode",
+               "renderPlainAnswer", "renderScored"):
+        assert f"function {fn}" in js or f"async function {fn}" in js, fn
+    # both tabs reachable
+    assert 'id: "guide"' in js and 'id: "questions"' in js

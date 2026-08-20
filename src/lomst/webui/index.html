@@ -226,6 +226,64 @@ textarea { resize: vertical; min-height: 66px; }
 .kv dt { color: var(--muted); font-weight: 600; }
 .kv dd { margin: 0; color: var(--ink-2); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* --------------------------------------------------------------- guide/survey */
+.prose { max-width: 74ch; }
+.prose p { margin: 0 0 12px; color: var(--ink-2); }
+.prose p:last-child { margin-bottom: 0; }
+.callout {
+  border-left: 3px solid var(--accent); padding: 10px 14px; margin: 4px 0 0;
+  background: var(--surface-2); border-radius: 0 8px 8px 0; color: var(--ink);
+}
+.acc { border-top: 1px solid var(--hairline); }
+.acc:first-child { border-top: none; }
+.acc > summary {
+  cursor: pointer; padding: 12px 16px; font-weight: 600; list-style: none;
+  display: flex; align-items: center; gap: 10px;
+}
+.acc > summary::-webkit-details-marker { display: none; }
+.acc > summary::before { content: "\25b8"; color: var(--muted); font-size: 11px; }
+.acc[open] > summary::before { content: "\25be"; }
+.acc > summary:hover { background: var(--surface-2); }
+.acc > .inner { padding: 0 16px 16px 40px; }
+.termlist { display: grid; gap: 14px; }
+.term { border-left: 2px solid var(--hairline); padding-left: 14px; }
+.term .t { font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.term .p { color: var(--ink-2); margin-top: 3px; }
+.term .m { color: var(--muted); margin-top: 3px; font-size: 12.5px; }
+.term .ex { color: var(--muted); margin-top: 3px; font-size: 12.5px; font-style: italic; }
+
+.wiz { display: grid; gap: 14px; }
+.wizsteps { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 4px; }
+.wizsteps .s {
+  font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+  background: var(--surface-2); color: var(--muted); border: 1px solid var(--border);
+}
+.wizsteps .s.now { background: var(--accent); color: #fff; border-color: transparent; }
+.wizsteps .s.done { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, transparent); }
+.q { padding: 14px 0; border-bottom: 1px solid var(--hairline); }
+.q:last-child { border-bottom: none; }
+.q .prompt { font-weight: 600; margin-bottom: 3px; }
+.q .qhelp { color: var(--muted); font-size: 12.5px; margin-bottom: 8px; max-width: 70ch; }
+.q .opts { display: grid; gap: 6px; }
+.opt {
+  display: flex; gap: 10px; align-items: flex-start; padding: 9px 12px;
+  border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
+}
+.opt:hover { background: var(--surface-2); }
+.opt input { margin-top: 3px; }
+.opt .ol { font-weight: 500; }
+.opt .oh { color: var(--muted); font-size: 12.5px; }
+.opt.sel { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.yn { display: flex; gap: 8px; }
+.yn button.on { background: var(--accent); color: #fff; border-color: transparent; }
+.answerbox { border-radius: var(--radius); padding: 18px; border: 1px solid var(--border); }
+.answerbox.yes { border-color: color-mix(in srgb, var(--good) 45%, transparent); background: color-mix(in srgb, var(--good) 7%, transparent); }
+.answerbox.no  { border-color: color-mix(in srgb, var(--critical) 45%, transparent); background: color-mix(in srgb, var(--critical) 6%, transparent); }
+.answerbox.cond { border-color: color-mix(in srgb, var(--warning) 55%, transparent); background: color-mix(in srgb, var(--warning) 9%, transparent); }
+.answerbox .big { font-size: 19px; font-weight: 700; display: flex; gap: 10px; align-items: center; }
+.answerbox ul { margin: 10px 0 0; padding-left: 20px; color: var(--ink-2); }
+.answerbox ul li { margin-bottom: 5px; }
+
 footer.foot { color: var(--muted); font-size: 11.5px; text-align: center; padding: 26px 16px 0; }
 </style>
 </head>
@@ -336,11 +394,15 @@ const TIER = {
   aggregator:    { cls: "warning", ic: "△", label: "Leads only" },
 };
 
-function badge(map, key, fallbackLabel) {
-  const m = map[key] || { cls: "neutral", ic: "●", label: fallbackLabel || titleCase(key) || "—" };
+/* `label` overrides the map's wording, taking the map's colour and icon.
+   Several call sites pass a contextual label - "Overdue", "Gated", "3 gaps" -
+   and an earlier version only honoured it when the key was absent from the map,
+   so those all silently rendered the generic word instead. */
+function badge(map, key, label) {
+  const m = map[key] || { cls: "neutral", ic: "\u25cf" };
   const b = el("span", `badge ${m.cls}`);
   const ic = el("span", "ic", m.ic); ic.setAttribute("aria-hidden", "true");
-  b.append(ic, document.createTextNode(m.label));
+  b.append(ic, document.createTextNode(label || m.label || titleCase(key) || "\u2014"));
   return b;
 }
 function chips(values, cls) {
@@ -454,6 +516,8 @@ const TABS = [
   { id: "families",     label: "Families" },
   { id: "intel",        label: "Intelligence" },
   { id: "sources",      label: "Sources",       count: () => S.overview && S.overview.sources_total },
+  { id: "questions",    label: "Questionnaires" },
+  { id: "guide",        label: "Guide" },
 ];
 
 /* =============================================================== chrome === */
@@ -618,7 +682,7 @@ async function renderPanel() {
   const fn = {
     actions: panelActions, registry: panelRegistry, assess: panelAssess,
     check: panelCheck, advisories: panelAdvisories, families: panelFamilies,
-    models: panelModels,
+    models: panelModels, questions: panelQuestions, guide: panelGuide,
     intel: panelIntel, sources: panelSources,
   }[S.tab];
   setPanel(spinnerPanel());
@@ -1532,6 +1596,370 @@ async function panelSources() {
     return dl;
   })()));
   setPanel(host);
+}
+
+/* ------------------------------------------------------------------ guide - */
+
+function termNode(t) {
+  const d = el("div", "term");
+  const head = el("div", "t");
+  head.append(document.createTextNode(t.label));
+  if (t.section) head.append(el("span", "chip sec", "\u00a7" + t.section));
+  if (t.needs_tested_fallback) head.append(el("span", "chip", "needs a tested fallback"));
+  if (t.needs_extra_governance) head.append(el("span", "chip", "extra review"));
+  if (t.needs_sensitive_approval) head.append(el("span", "chip", "needs extra approval"));
+  if (t.permits_use === true) head.append(badge(VERDICT, "pass", "Use permitted"));
+  if (t.permits_use === false) head.append(badge(VERDICT, "fail", "No use permitted"));
+  if (t.allows_new_work === false) head.append(badge(URGENCY, "high", "Not for new work"));
+  d.append(head);
+  if (t.plain) d.append(el("div", "p", t.plain));
+  if (t.means) d.append(el("div", "m", t.means));
+  if (t.example) d.append(el("div", "ex", "For example: " + t.example));
+  return d;
+}
+
+function accordion(title, subtitle, nodes, open) {
+  const det = el("details", "acc");
+  if (open) det.open = true;
+  const sum = el("summary");
+  sum.append(document.createTextNode(title));
+  if (subtitle) sum.append(el("span", "count", subtitle));
+  const inner = el("div", "inner");
+  const list = el("div", "termlist");
+  nodes.forEach(n => list.append(n));
+  inner.append(list);
+  det.append(sum, inner);
+  return det;
+}
+
+async function panelGuide() {
+  const g = S.cache.guide || (S.cache.guide = await api("/api/guide"));
+  const host = el("div");
+
+  const intro = el("div", "prose");
+  g.intro.paragraphs.forEach(t => intro.append(el("p", null, t)));
+  intro.append(el("div", "callout", g.intro.key_rule));
+  host.append(card(g.intro.title, intro));
+
+  const box = el("div", "card");
+  const sections = [
+    ["The three things approved separately", `${g.component_kinds.length}`, g.component_kinds, true],
+    ["What an approval status means", `${g.approval_outcomes.length}`, g.approval_outcomes, false],
+    ["Levels of use, lightest to heaviest", `${g.usage_categories.length}`, g.usage_categories, false],
+    ["Kinds of information", `${g.information_classes.length}`, g.information_classes, false],
+    ["The five things we check", `${g.criteria.length}`, g.criteria, false],
+    ["Where a model is in its life", `${g.lifecycle_statuses.length}`, g.lifecycle_statuses, false],
+    ["Risk levels", `${g.risk_levels.length}`, g.risk_levels, false],
+    ["How much a source is trusted", `${g.source_tiers.length}`, g.source_tiers, false],
+    ["Jargon, translated", `${g.glossary.length}`, g.glossary, false],
+  ];
+  sections.forEach(([title, n, items, open]) =>
+    box.append(accordion(title, n, items.map(termNode), open)));
+
+  // Conditions get their own shape: a code, a plain meaning, the formal wording.
+  const condNodes = g.conditions.map(c => {
+    const d = el("div", "term");
+    const head = el("div", "t");
+    head.append(el("span", "chip sec", c.code));
+    head.append(document.createTextNode(c.label));
+    d.append(head);
+    d.append(el("div", "p", c.plain));
+    d.append(el("div", "m", "Formally: " + c.formal));
+    return d;
+  });
+  box.append(accordion("Conditions you might be given (C1\u2013C9)", `${g.conditions.length}`, condNodes, false));
+
+  const roleNodes = g.roles.map(r => {
+    const d = el("div", "term");
+    const head = el("div", "t");
+    head.append(document.createTextNode(r.name));
+    head.append(el("span", "chip sec", "\u00a7" + r.section));
+    d.append(head, el("div", "p", r.does));
+    return d;
+  });
+  box.append(accordion("Who decides what", `${g.roles.length}`, roleNodes, false));
+
+  host.append(box);
+  setPanel(host);
+}
+
+/* --------------------------------------------------------- questionnaires - */
+
+async function panelQuestions() {
+  const cat = S.cache.surveys || (S.cache.surveys = await api("/api/surveys"));
+  const host = el("div");
+
+  if (S.cache.activeSurvey) {
+    const sv = cat.surveys.find(x => x.id === S.cache.activeSurvey);
+    if (sv) { setPanel(await renderWizard(sv)); return; }
+  }
+
+  const intro = el("div", "prose");
+  intro.append(el("p", null,
+    "The governance document is mostly checklists. These are those checklists, " +
+    "answerable, with the consequences worked out for you."));
+  host.append(card("Questionnaires", intro));
+
+  const list = el("div", "card");
+  cat.surveys.forEach(sv => {
+    const det = el("details", "acc");
+    const sum = el("summary");
+    sum.append(document.createTextNode(sv.title));
+    const nq = sv.steps.reduce((a, st) => a + st.questions.length, 0);
+    sum.append(el("span", "count", `${nq} questions`));
+    if (sv.decides_permission) sum.append(badge(VERDICT, "pass", "Gives a yes/no"));
+    const inner = el("div", "inner");
+    inner.append(el("div", "p", sv.purpose));
+    inner.append(el("div", "m", "You get: " + sv.outcome));
+    const go = el("button", "primary", "Start");
+    go.style.marginTop = "12px";
+    go.onclick = () => { S.cache.activeSurvey = sv.id; S.cache.answers = {}; renderPanel(); };
+    inner.append(go);
+    det.append(sum, inner);
+    list.append(det);
+  });
+  host.append(list);
+  setPanel(host);
+}
+
+async function renderWizard(sv) {
+  const host = el("div");
+  S.cache.answers = S.cache.answers || {};
+  const answers = S.cache.answers;
+  const reg = S.cache.registry || (S.cache.registry = await api("/api/registry"));
+
+  const back = el("button", "ghost", "\u2190 All questionnaires");
+  back.onclick = () => { S.cache.activeSurvey = null; S.cache.result = null; renderPanel(); };
+  const head = el("div", "filterbar");
+  head.append(back);
+  host.append(head);
+
+  const intro = el("div", "prose");
+  intro.append(el("p", null, sv.purpose));
+  host.append(card(sv.title, intro));
+
+  const form = el("div", "card");
+  const body = el("div", "body");
+  sv.steps.forEach((step, i) => {
+    const h = el("div");
+    h.style.marginTop = i ? "22px" : "0";
+    const t = el("div");
+    t.style.fontWeight = "600";
+    t.style.fontSize = "15px";
+    t.textContent = `${i + 1}. ${step.title}`;
+    h.append(t);
+    if (step.intro) h.append(el("div", "qhelp", step.intro));
+    body.append(h);
+    step.questions.forEach(q => body.append(questionNode(q, answers, reg)));
+  });
+  form.append(body);
+  host.append(form);
+
+  const submit = el("button", "primary", sv.decides_permission ? "Get the answer" : "Summarise");
+  const out = el("div");
+  submit.onclick = async () => {
+    out.textContent = ""; out.append(spinnerPanel("Working it out\u2026"));
+    try {
+      const res = await post("/api/surveys/" + sv.id, { answers });
+      out.textContent = "";
+      out.append(sv.decides_permission ? renderPlainAnswer(res) : renderScored(res));
+      out.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (e) {
+      out.textContent = "";
+      out.append(banner("bad", "Could not complete", e.message));
+    }
+  };
+  const bar = el("div"); bar.style.margin = "4px 0 16px"; bar.append(submit);
+  host.append(bar, out);
+  return host;
+}
+
+function questionNode(q, answers, reg) {
+  const d = el("div", "q");
+  const p = el("div", "prompt");
+  p.append(document.createTextNode(q.prompt));
+  if (!q.required) p.append(el("span", "chip", "optional"));
+  if (q.section) p.append(el("span", "chip sec", "\u00a7" + q.section));
+  d.append(p);
+  if (q.help) d.append(el("div", "qhelp", q.help));
+
+  const set = v => { answers[q.id] = v; };
+
+  if (q.type === "text" || q.type === "date") {
+    const i = el("input"); i.type = q.type === "date" ? "date" : "text";
+    i.value = answers[q.id] || "";
+    i.oninput = () => set(i.value);
+    d.append(i);
+  } else if (q.type === "longtext") {
+    const i = el("textarea"); i.value = answers[q.id] || "";
+    i.oninput = () => set(i.value);
+    d.append(i);
+  } else if (q.type === "family" || q.type === "runtime") {
+    const sel = el("select");
+    const blank = el("option", null, q.type === "family" ? "Choose a model\u2026" : "Not sure / none");
+    blank.value = ""; sel.append(blank);
+    (reg.entries || [])
+      .filter(e => e.kind === (q.type === "family" ? "model_family" : "runtime"))
+      .forEach(e => {
+        const o = el("option", null, `${e.name} \u2014 ${titleCase(e.approval_status)}`);
+        o.value = e.key; sel.append(o);
+      });
+    sel.value = answers[q.id] || "";
+    sel.onchange = () => set(sel.value);
+    d.append(sel);
+    if (q.type === "family" && !(reg.entries || []).some(e => e.kind === "model_family")) {
+      d.append(el("div", "qhelp", "Nothing is in the registry yet, so every answer will be no."));
+    }
+  } else if (q.type === "yesno") {
+    const wrap = el("div", "yn");
+    ["yes", "no"].forEach(v => {
+      const b = el("button", null, v === "yes" ? "Yes" : "No");
+      if (answers[q.id] === v) b.classList.add("on");
+      b.onclick = () => {
+        set(v);
+        wrap.querySelectorAll("button").forEach(x => x.classList.remove("on"));
+        b.classList.add("on");
+      };
+      wrap.append(b);
+    });
+    const dk = el("button", null, "Don\u2019t know");
+    if (answers[q.id] === "unknown") dk.classList.add("on");
+    dk.onclick = () => {
+      set("unknown");
+      wrap.querySelectorAll("button").forEach(x => x.classList.remove("on"));
+      dk.classList.add("on");
+    };
+    wrap.append(dk);
+    d.append(wrap);
+  } else {
+    const multi = q.type === "multi";
+    const opts = el("div", "opts");
+    if (multi && !Array.isArray(answers[q.id])) answers[q.id] = answers[q.id] ? [answers[q.id]] : [];
+    q.options.forEach(o => {
+      const lab = el("label", "opt");
+      const inp = el("input");
+      inp.type = multi ? "checkbox" : "radio";
+      inp.name = q.id; inp.value = o.value;
+      inp.checked = multi ? answers[q.id].includes(o.value) : answers[q.id] === o.value;
+      if (inp.checked) lab.classList.add("sel");
+      const txt = el("div");
+      txt.append(el("div", "ol", o.label));
+      if (o.help) txt.append(el("div", "oh", o.help));
+      if ((o.conditions || []).length) {
+        const c = el("div", "oh");
+        c.append(document.createTextNode("Brings: "));
+        o.conditions.forEach(code => c.append(el("span", "chip sec", code)));
+        txt.append(c);
+      }
+      inp.onchange = () => {
+        if (multi) {
+          const arr = answers[q.id];
+          const at = arr.indexOf(o.value);
+          if (inp.checked && at < 0) arr.push(o.value);
+          if (!inp.checked && at >= 0) arr.splice(at, 1);
+        } else {
+          set(o.value);
+        }
+        opts.querySelectorAll(".opt").forEach(x =>
+          x.classList.toggle("sel", x.querySelector("input").checked));
+      };
+      lab.append(inp, txt);
+      opts.append(lab);
+    });
+    d.append(opts);
+  }
+  return d;
+}
+
+function renderPlainAnswer(res) {
+  const pl = res.plain || {};
+  const kind = pl.answer === "yes" ? "yes" : (pl.answer === "no" ? "no" : "cond");
+  const box = el("div", "answerbox " + kind);
+  const big = el("div", "big");
+  const icon = el("span", null, kind === "yes" ? "\u2713" : (kind === "no" ? "\u2715" : "\u25a0"));
+  icon.setAttribute("aria-hidden", "true");
+  big.append(icon, el("span", null, pl.headline || ""));
+  box.append(big);
+
+  if ((pl.because || []).length) {
+    box.append(el("div", "qhelp", kind === "no" ? "Why not:" : "Conditions:"));
+    const ul = el("ul");
+    pl.because.forEach(b => {
+      const li = el("li");
+      li.append(document.createTextNode(b.why));
+      if (b.section) li.append(el("span", "chip sec", b.section));
+      ul.append(li);
+    });
+    box.append(ul);
+  }
+  if ((pl.what_now || []).length) {
+    box.append(el("div", "qhelp", "What to do:"));
+    const ul = el("ul");
+    pl.what_now.forEach(w => ul.append(el("li", null, w)));
+    box.append(ul);
+  }
+
+  const wrap = el("div");
+  wrap.append(box);
+  const det = el("details", "acc");
+  det.style.marginTop = "14px";
+  const sum = el("summary"); sum.textContent = "Show every check that was applied";
+  const inner = el("div", "inner");
+  const cols = [
+    { key: "passed", label: "Result", render: r => badge(VERDICT, r.passed ? "pass" : "fail", r.passed ? "Pass" : "Blocks") },
+    { key: "section", label: "Section", render: r => el("span", "chip sec", r.section) },
+    { key: "rule", label: "Rule" },
+    { key: "detail", label: "Detail", wrap: true },
+  ];
+  inner.append(buildTable(cols, res.checks || [], { sortKey: "passed" }));
+  det.append(sum, inner);
+  wrap.append(det);
+  return wrap;
+}
+
+function renderScored(res) {
+  const wrap = el("div");
+  const kind = res.recommendation === "approved" ? "yes"
+    : (res.recommendation === "deferred" || res.recommendation === "incomplete" ? "no" : "cond");
+  const box = el("div", "answerbox " + kind);
+  const big = el("div", "big");
+  const map = {
+    approved: "Looks clean",
+    approved_with_conditions: "Usable, with conditions",
+    deferred: "Not ready to approve",
+    incomplete: "Not finished",
+  };
+  big.append(el("span", null, map[res.recommendation] || res.recommendation));
+  box.append(big);
+  box.append(el("div", "qhelp", res.headline));
+  if ((res.unanswered || []).length) {
+    box.append(el("div", "qhelp", "Still to answer:"));
+    const ul = el("ul");
+    res.unanswered.forEach(u => ul.append(el("li", null, u)));
+    box.append(ul);
+  }
+  box.append(el("div", "m", res.disclaimer));
+  wrap.append(box);
+
+  if ((res.gaps || []).length) {
+    const cols = [
+      { key: "question", label: "Question", wrap: true },
+      { key: "answer", label: "You said", render: r => titleCase(r.answer) },
+      { key: "section", label: "Section", render: r => r.section ? el("span", "chip sec", r.section) : "\u2014" },
+      { key: "conditions", label: "Consequence", sortKey: r => (r.conditions||[]).length,
+        render: r => chips(r.conditions, "sec") },
+    ];
+    wrap.append(card(`Gaps \u2014 ${res.gaps.length}`, buildTable(cols, res.gaps), null, true));
+  }
+  if ((res.conditions || []).length) {
+    const cols = [
+      { key: "code", label: "Code", render: r => el("span", "chip sec", r.code) },
+      { key: "label", label: "What it means", wrap: true },
+      { key: "plain", label: "In practice", wrap: true },
+    ];
+    wrap.append(card(`Conditions implied \u2014 ${res.conditions.length}`, buildTable(cols, res.conditions), null, true));
+  }
+  return wrap;
 }
 
 /* =================================================================== boot = */

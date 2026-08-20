@@ -11,6 +11,38 @@ from __future__ import annotations
 from enum import Enum
 
 
+#: Display labels for the enum members whose snake_case value would otherwise
+#: leak into user-facing text. Governance vocabulary is precise; "you cannot use
+#: this for customer_facing_applications" is precise and unreadable.
+_LABELS: dict[str, str] = {
+    "research_experimentation": "research and experimentation",
+    "internal_productivity": "internal productivity",
+    "internal_business_applications": "internal business applications",
+    "production_services": "production services",
+    "customer_facing_applications": "customer-facing applications",
+    "sensitive_information_processing": "handling sensitive information",
+    "autonomous_decision_support": "acting or deciding on its own",
+    "approved_with_conditions": "approved with conditions",
+    "pending_evaluation": "pending evaluation",
+    "limited_support": "limited support",
+    "source_code": "source code",
+    "model_family": "model family",
+}
+
+
+def humanise(value: object) -> str:
+    """Render an enum member or raw value as readable text."""
+    raw = getattr(value, "value", value)
+    text = str(raw)
+    return _LABELS.get(text, text.replace("_", " "))
+
+
+def humanise_all(values: object) -> str:
+    """Comma-joined readable list, or 'none' when empty."""
+    items = [humanise(v) for v in (values or [])]
+    return ", ".join(items) if items else "none"
+
+
 class ApprovalOutcome(str, Enum):
     """Section 6.3 - Approval outcomes."""
 

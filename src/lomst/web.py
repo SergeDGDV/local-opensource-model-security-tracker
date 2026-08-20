@@ -653,6 +653,119 @@ async def api_digest(request: Request):
         store.close()
 
 
+async def api_guide(request: Request):
+    """Plain-language reference for every governed term."""
+    from .governance.guide import build
+
+    return JSONResponse(build())
+
+
+async def api_surveys(request: Request):
+    from .governance.surveys import catalogue
+
+    return JSONResponse({"surveys": catalogue()})
+
+
+async def api_survey_submit(request: Request):
+    """Score a completed questionnaire.
+
+    The permission survey is special-cased: it has a real answer, so it runs the
+    Section 8 gate rather than a checklist summary. Everything else returns what
+    is missing and which conditions the answers imply.
+    """
+    from .governance.surveys import get as get_survey, score
+
+    survey_id = request.path_params["survey_id"]
+    survey = get_survey(survey_id)
+    if survey is None:
+        return _err(f"unknown questionnaire {survey_id!r}", 404)
+    try:
+        answers = (await request.json()).get("answers") or {}
+    except json.JSONDecodeError:
+        return _err("invalid JSON body")
+
+    if not survey.decides_permission:
+        return JSONResponse(score(survey, answers))
+
+    family = (answers.get("family") or "").strip()
+    if not family:
+        return _err("Pick a model family first.")
+    try:
+        category = UsageCategory(answers.get("usage_category"))
+    except ValueError:
+        return _err("Choose what you will use it for.")
+
+    cfg, store, registry = _ctx()
+    try:
+        info = [
+            InformationClass(i)
+            for i in (answers.get("information_classes") or [])
+            if i in {c.value for c in InformationClass}
+        ]
+        decision = UsageGate(registry).check(
+            family,
+            category,
+            information_classes=info,
+            runtime=(answers.get("runtime") or None),
+            solution_name=(answers.get("solution_name") or None),
+            version=(answers.get("version") or None),
+        )
+        out = decision.to_dict()
+        out["summary"] = decision.summary()
+        out["plain"] = _plain_verdict(decision, family, category)
+        return JSONResponse(out)
+    except RegistryError as exc:
+        return _err(str(exc), 500)
+    finally:
+        store.close()
+
+
+def _plain_verdict(decision: Any, family: str, category: UsageCategory) -> dict[str, Any]:
+    """Restate the verdict without governance vocabulary.
+
+    The structured result is precise but reads as jargon. This is the sentence
+    someone can act on; the checks stay available underneath for anyone who wants
+    the reasoning.
+    """
+    from .governance.guide import CONDITION_PLAIN, USAGE_CATEGORIES
+    from .governance.usage import Verdict
+
+    use = USAGE_CATEGORIES[category].label.lower()
+    if decision.verdict is Verdict.BLOCKED:
+        headline = f"No - you cannot use {family} for {use} yet."
+        blockers = [
+            {"why": r.detail, "rule": r.rule, "section": r.section}
+            for r in decision.blockers
+        ]
+        return {
+            "answer": "no",
+            "headline": headline,
+            "because": blockers,
+            "what_now": decision.required_actions
+            or ["Talk to AI Governance about what would need to change."],
+        }
+    if decision.verdict is Verdict.ALLOWED:
+        return {
+            "answer": "yes",
+            "headline": f"Yes - {family} is approved for {use}.",
+            "because": [],
+            "what_now": ["Stay within that use. Anything beyond it needs a new decision."],
+        }
+    return {
+        "answer": "yes_with_conditions",
+        "headline": f"Yes, with conditions - {family} may be used for {use} if these are met.",
+        "because": [
+            {
+                "why": CONDITION_PLAIN[c][1],
+                "rule": CONDITION_PLAIN[c][0],
+                "section": c.value,
+            }
+            for c in decision.conditions
+        ],
+        "what_now": decision.required_actions,
+    }
+
+
 async def api_vocab(request: Request):
     return JSONResponse(
         {
@@ -908,6 +1021,9 @@ routes = [
     Route("/api/sources", api_sources),
     Route("/api/digest", api_digest),
     Route("/api/vocabulary", api_vocab),
+    Route("/api/guide", api_guide),
+    Route("/api/surveys", api_surveys),
+    Route("/api/surveys/{survey_id}", api_survey_submit, methods=["POST"]),
     Route("/api/ingest", api_ingest_start, methods=["POST"]),
     Route("/api/ingest/status", api_ingest_status),
     Route("/api/scaffold", api_scaffold, methods=["POST"]),

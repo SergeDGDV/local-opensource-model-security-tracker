@@ -40,9 +40,17 @@ That is the whole workflow for a non-technical user: buttons and tables.
 | **Families** | The §6.1 family rollup — what we govern vs. what is merely observed |
 | **Intelligence** | Everything ingested, labelled by how much it can be trusted |
 | **Sources** | Whether each feed is fresh or stale |
+| **Questionnaires** | The document's checklists, answerable — including "Can I use this model?", which gives a plain yes/no |
+| **Guide** | Every governance term explained in plain English, with the section reference as a citation rather than the explanation |
 
 Tiles at the top are clickable and jump to the relevant filtered view. Tables
 sort on any column. There is a light/dark toggle.
+
+**Nobody has to read the governance document to use this.** The Guide tab
+explains every term — what "approved with conditions" actually permits, what C1
+to C9 require of you, which kinds of information need extra approval — and the
+Questionnaires tab turns Appendices A, C and D plus the §8.5 continuity
+questions into forms that work out the consequences for you.
 
 Approvals can be recorded from the Registry tab: open **Details → Record a
 decision**. Both an approving authority and a rationale are required, and the
@@ -332,13 +340,15 @@ src/lomst/
   governance/classify.py     §7 evaluation engine
   governance/usage.py        §8 usage gate
   governance/review.py       §6.2/8.5/9.2/9.3/11.4/14 lifecycle triggers
+  governance/guide.py        plain-language reference, keyed to the enums
+  governance/surveys.py      Appendices A/C/D and §8.5 as answerable forms
   sources/                   11 connectors
   extract.py                 family/runtime attribution
   web.py                     dashboard API (Starlette, no new deps)
   webui/index.html           the whole UI - one file, no build step
   ingest.py digest.py cli.py mcp_server.py
 Launch Dashboard.command     double-click entry point for non-developers
-tests/                       118 tests
+tests/                       156 tests
 ```
 
 Seeded registry: `llama` (the Appendix B.1 worked example), `mistral`, and
@@ -346,7 +356,7 @@ runtimes `ollama` and `vllm`. `mistral` intentionally carries an **untested**
 fallback so `lomst actions` demonstrates the §8.5 gap it exists to catch.
 
 ```bash
-.venv/bin/python -m pytest -q       # 118 tests
+.venv/bin/python -m pytest -q       # 156 tests
 lomst probe                          # verify every source still parses
 ```
 

@@ -19,7 +19,15 @@ from ..extract import compare_release, versions_equivalent
 from .classify import OFFICIAL_PUBLISHERS, publisher_matches
 from .licensing import assess as assess_license
 from .registry import Decision, Entry, Registry, today
-from .vocab import ApprovalOutcome, ComponentKind, ConditionCode, UsageCategory, USAGE_RANK
+from .vocab import (
+    ApprovalOutcome,
+    ComponentKind,
+    ConditionCode,
+    UsageCategory,
+    USAGE_RANK,
+    humanise,
+    humanise_all,
+)
 
 
 class Urgency(str, Enum):
@@ -125,7 +133,7 @@ def dependency_gaps(registry: Registry) -> list[Action]:
                     "8.5",
                     entry.key,
                     "fallback_gap",
-                    f"{solution.name} ({solution.usage_category.value}): {gap}. "
+                    f"{solution.name} ({humanise(solution.usage_category)}): {gap}. "
                     f"A withdrawal under Section 6.3 would become an operational incident "
                     f"rather than a managed migration.",
                     owner=solution.owner or entry.business_owner,
@@ -148,7 +156,7 @@ def dependency_gaps(registry: Registry) -> list[Action]:
                     "8.5 / E.2",
                     entry.key,
                     "dependent_solutions_empty",
-                    f"Approved for {', '.join(u.value for u in production_uses)} but no "
+                    f"Approved for {humanise_all(production_uses)} but no "
                     f"dependent solutions recorded. Appendix E.2 expects a completed entry "
                     f"before that approval stands.",
                     owner=entry.governance_owner,
